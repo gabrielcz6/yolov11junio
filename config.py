@@ -6,7 +6,7 @@ RTSP_URL = "rtsp://admin:usuario1234@192.168.18.13:554/Streaming/channels/101?tc
 
 # Parámetros de captura
 VIDEO_DURATION_SECONDS = 15
-MAX_VIDEOS = 50
+MAX_VIDEOS = 5000000
 PROCESS_VIDEOS = True
 SHOW_LIVE = True
 
@@ -34,7 +34,7 @@ LINE_ORIENTATION = "horizontal"
 DETECTION_LINE_Y = 174          # CENTRO del rango observado (140+208)/2
 DETECTION_LINE_X = None
 DETECTION_LINE_RATIO = None
-LINE_MARGIN = 25               # Zona: 149-199 (cubre todo el rango)
+LINE_MARGIN = 10               # Zona: 149-199 (cubre todo el rango)
 COUNTING_MODE = "entrance_exit"
 ENTRANCE_DIRECTION = "positive" # Las personas van de 140→208 (aumentando Y)
 
