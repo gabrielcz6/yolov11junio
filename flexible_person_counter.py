@@ -3,7 +3,10 @@ import numpy as np
 from datetime import datetime
 from collections import defaultdict, deque
 from ultralytics import YOLO
-
+# Suprimir COMPLETAMENTE el output de YOLO
+import io
+import sys
+from contextlib import redirect_stdout, redirect_stderr
 
 class FlexiblePersonCounter:
     """
@@ -131,105 +134,206 @@ class FlexiblePersonCounter:
         
         print(f"📏 Línea de detección establecida: {line_type} = {self.detection_line}")
     
-    def get_direction(self, track_id, current_pos):
-        """Determina la dirección del movimiento"""
-        if len(self.tracks[track_id]) < 2:
-            return None
-        
-        positions = list(self.tracks[track_id])
-        start_pos = positions[0]
-        end_pos = positions[-1]
-        
-        movement = end_pos - start_pos
-        
-        if abs(movement) < self.direction_threshold:
-            return None
-        
-        return "positive" if movement > 0 else "negative"
-    
+    # DIAGNÓSTICO ESPECÍFICO PARA CONTEO
+# Reemplaza los métodos crossed_line y get_direction en flexible_person_counter.py
+
     def crossed_line(self, track_id, current_pos):
-        """Verifica si la persona cruzó la línea de detección"""
-        if not self.detection_line or len(self.tracks[track_id]) < 2:
-            return False
-        
-        positions = list(self.tracks[track_id])
-        prev_pos = positions[-2] if len(positions) >= 2 else positions[-1]
-        
-        line_before = self.detection_line - self.line_margin
-        line_after = self.detection_line + self.line_margin
-        
-        # Cruzó en dirección positiva (derecha/abajo)
-        if prev_pos < line_before and current_pos > line_after:
-            return True
-        
-        # Cruzó en dirección negativa (izquierda/arriba)
-        if prev_pos > line_after and current_pos < line_before:
-            return True
-        
-        return False
-    
+      """Verifica si la persona cruzó la línea - CON DEBUG DETALLADO"""
+      if not self.detection_line or len(self.tracks[track_id]) < 2:
+          print(f"🔍 ID {track_id}: Sin línea o historial insuficiente")
+          return False
+      
+      positions = list(self.tracks[track_id])
+      prev_pos = positions[-2] if len(positions) >= 2 else positions[-1]
+      
+      line_before = self.detection_line - self.line_margin
+      line_after = self.detection_line + self.line_margin
+      
+      print(f"🎯 ID {track_id} - ANÁLISIS DE CRUCE:")
+      print(f"   📍 Posición anterior: {prev_pos}")
+      print(f"   📍 Posición actual: {current_pos}")
+      print(f"   📏 Zona de detección: {line_before} ← {self.detection_line} → {line_after}")
+      print(f"   📐 Orientación: {self.line_orientation}")
+      
+      # Cruzó en dirección positiva (derecha/abajo)
+      crossed_positive = prev_pos < line_before and current_pos > line_after
+      # Cruzó en dirección negativa (izquierda/arriba)  
+      crossed_negative = prev_pos > line_after and current_pos < line_before
+      
+      print(f"   🚪 Cruzó hacia POSITIVO ({self.line_orientation}): {crossed_positive}")
+      print(f"   🚪 Cruzó hacia NEGATIVO ({self.line_orientation}): {crossed_negative}")
+      
+      if crossed_positive:
+          direction_name = "ABAJO" if self.line_orientation == "horizontal" else "DERECHA"
+          print(f"   ✅ ¡CRUCE DETECTADO! Dirección: {direction_name}")
+          return True
+      elif crossed_negative:
+          direction_name = "ARRIBA" if self.line_orientation == "horizontal" else "IZQUIERDA"
+          print(f"   ✅ ¡CRUCE DETECTADO! Dirección: {direction_name}")
+          return True
+      else:
+          print(f"   ❌ No hay cruce - persona aún no atravesó completamente")
+          # Mostrar análisis detallado
+          if prev_pos >= line_before and prev_pos <= line_after:
+              print(f"      📍 Anterior DENTRO de zona: {prev_pos}")
+          if current_pos >= line_before and current_pos <= line_after:
+              print(f"      📍 Actual DENTRO de zona: {current_pos}")
+          return False
+
+    def crossed_line(self, track_id, current_pos):
+       """Verifica si la persona cruzó la línea - LÓGICA SIMPLIFICADA"""
+       if not self.detection_line or len(self.tracks[track_id]) < 5:  # Mínimo 5 puntos
+           return False
+       
+       positions = list(self.tracks[track_id])
+       
+       # Obtener posiciones de inicio y final del trayecto
+       start_pos = positions[0]
+       end_pos = positions[-1]
+       
+       line_before = self.detection_line - self.line_margin
+       line_after = self.detection_line + self.line_margin
+       
+       print(f"🎯 ID {track_id} - NUEVO ANÁLISIS DE CRUCE:")
+       print(f"   📍 Posición inicial: {start_pos}")
+       print(f"   📍 Posición actual: {end_pos}")
+       print(f"   📏 Zona de detección: {line_before} ← {self.detection_line} → {line_after}")
+       
+       # NUEVA LÓGICA: ¿Cruzó completamente la zona?
+       crossed_positive = start_pos < line_before and end_pos > line_after
+       crossed_negative = start_pos > line_after and end_pos < line_before
+       
+       print(f"   🚪 Cruzó COMPLETAMENTE hacia POSITIVO: {crossed_positive}")
+       print(f"   🚪 Cruzó COMPLETAMENTE hacia NEGATIVO: {crossed_negative}")
+       
+       if crossed_positive:
+           direction_name = "ABAJO" if self.line_orientation == "horizontal" else "DERECHA"
+           print(f"   ✅ ¡CRUCE COMPLETO! Dirección: {direction_name}")
+           return True
+       elif crossed_negative:
+           direction_name = "ARRIBA" if self.line_orientation == "horizontal" else "IZQUIERDA"
+           print(f"   ✅ ¡CRUCE COMPLETO! Dirección: {direction_name}")
+           return True
+       else:
+           print(f"   ❌ No hay cruce completo")
+           print(f"      📊 Para cruce positivo necesita: start < {line_before} AND end > {line_after}")
+           print(f"      📊 Para cruce negativo necesita: start > {line_after} AND end < {line_before}")
+           print(f"      📊 Actual: start={start_pos}, end={end_pos}")
+           return False
+   
+# T   AMBIÉN MEJORAR get_direction para que use TODO el trayecto:
+
+    def get_direction(self, track_id, current_pos):
+         """Determina la dirección usando TODO el trayecto"""
+         if len(self.tracks[track_id]) < 5:
+             print(f"🧭 ID {track_id}: Trayecto muy corto para determinar dirección")
+             return None
+         
+         positions = list(self.tracks[track_id])
+         start_pos = positions[0]
+         end_pos = positions[-1]
+         
+         # Calcular movimiento total
+         total_movement = end_pos - start_pos
+         
+         print(f"🧭 ID {track_id} - ANÁLISIS DE DIRECCIÓN TOTAL:")
+         print(f"   📍 Posición inicial: {start_pos}")
+         print(f"   📍 Posición final: {end_pos}")
+         print(f"   📏 Movimiento TOTAL: {total_movement} píxeles")
+         print(f"   📊 Threshold requerido: {self.direction_threshold} píxeles")
+         
+         if abs(total_movement) < self.direction_threshold:
+             print(f"   ❌ Movimiento total insuficiente: {abs(total_movement)} < {self.direction_threshold}")
+             return None
+         
+         direction = "positive" if total_movement > 0 else "negative"
+         
+         if self.line_orientation == "horizontal":
+             direction_name = "ABAJO" if direction == "positive" else "ARRIBA"
+         else:
+             direction_name = "DERECHA" if direction == "positive" else "IZQUIERDA"
+         
+         print(f"   ✅ Dirección: {direction} = {direction_name}")
+         print(f"   📊 Movimiento total: {abs(total_movement)} píxeles")
+         
+         return direction
+       
     def process_frame(self, frame):
-        """Procesa un frame para detectar y contar personas"""
-        rotated_frame = self.rotate_frame(frame)
-        resized_frame = self.resize_frame(rotated_frame)
-        h, w = resized_frame.shape[:2]
-        
-        if self.detection_line is None:
-            self.set_detection_line(w, h)
-        
-        results = self.model.track(resized_frame, persist=True, classes=[0])
-        
-        if results[0].boxes is not None and results[0].boxes.id is not None:
-            boxes = results[0].boxes.xyxy.cpu().numpy()
-            track_ids = results[0].boxes.id.cpu().numpy().astype(int)
-            confidences = results[0].boxes.conf.cpu().numpy()
-            
-            for box, track_id, conf in zip(boxes, track_ids, confidences):
-                if conf < 0.5:
-                    continue
-                
-                x1, y1, x2, y2 = box
-                center_x = int((x1 + x2) / 2)
-                center_y = int((y1 + y2) / 2)
-                
-                # Usar coordenada apropiada según orientación de línea
-                if self.line_orientation == "vertical":
-                    tracking_coord = center_x  # Trackear movimiento horizontal
-                    movement_axis = "horizontal"
-                else:
-                    tracking_coord = center_y  # Trackear movimiento vertical
-                    movement_axis = "vertical"
-                
-                self.tracks[track_id].append(tracking_coord)
-                
-                if track_id not in self.counted_ids and self.crossed_line(track_id, tracking_coord):
-                    direction = self.get_direction(track_id, tracking_coord)
-                    
-                    if direction:
-                        self.counted_ids.add(track_id)
-                        
-                        if self.counting_mode == "entrance_exit":
-                            if direction == self.entrance_direction:
-                                self.count_entrance += 1
-                                arrow = "➡️" if movement_axis == "horizontal" else "⬇️"
-                                print(f"🚪{arrow} Persona #{track_id} ENTRÓ (Total entradas: {self.count_entrance})")
-                            else:
-                                self.count_exit += 1
-                                arrow = "⬅️" if movement_axis == "horizontal" else "⬆️"
-                                print(f"🚪{arrow} Persona #{track_id} SALIÓ (Total salidas: {self.count_exit})")
-                        else:
-                            if direction == "positive":
-                                self.count_positive += 1
-                                arrow = "➡️" if movement_axis == "horizontal" else "⬇️"
-                                direction_name = "DERECHA" if movement_axis == "horizontal" else "ABAJO"
-                                print(f"{arrow} Persona #{track_id} fue hacia {direction_name} (Total: {self.count_positive})")
-                            else:
-                                self.count_negative += 1
-                                arrow = "⬅️" if movement_axis == "horizontal" else "⬆️"
-                                direction_name = "IZQUIERDA" if movement_axis == "horizontal" else "ARRIBA"
-                                print(f"{arrow} Persona #{track_id} fue hacia {direction_name} (Total: {self.count_negative})")
-        
-        return results[0], resized_frame
+       """Procesa un frame para detectar y contar personas - SIN SPAM"""
+       rotated_frame = self.rotate_frame(frame)
+       resized_frame = self.resize_frame(rotated_frame)
+       h, w = resized_frame.shape[:2]
+       
+       if self.detection_line is None:
+           self.set_detection_line(w, h)
+       
+       
+       
+       f = io.StringIO()
+       with redirect_stdout(f), redirect_stderr(f):
+           results = self.model.track(resized_frame, persist=True, classes=[0], conf=0.5, verbose=False)
+       
+       # SOLO mostrar info si hay detecciones válidas
+       if results[0].boxes is not None and results[0].boxes.id is not None:
+           boxes = results[0].boxes.xyxy.cpu().numpy()
+           track_ids = results[0].boxes.id.cpu().numpy().astype(int)
+           confidences = results[0].boxes.conf.cpu().numpy()
+           
+           valid_detections = sum(1 for conf in confidences if conf >= 0.5)
+           if valid_detections > 0:
+               print(f"👥 {valid_detections} personas detectadas")
+           
+           for box, track_id, conf in zip(boxes, track_ids, confidences):
+               if conf < 0.5:
+                   continue
+               
+               x1, y1, x2, y2 = box
+               center_x = int((x1 + x2) / 2)
+               center_y = int((y1 + y2) / 2)
+               
+               if self.line_orientation == "vertical":
+                   tracking_coord = center_x
+                   coord_name = "X"
+                   movement_axis = "horizontal"
+               else:
+                   tracking_coord = center_y
+                   coord_name = "Y"
+                   movement_axis = "vertical"
+               
+               print(f"👤 ID {track_id}: {coord_name}={tracking_coord}, conf={conf:.2f}")
+               
+               self.tracks[track_id].append(tracking_coord)
+               
+               if track_id not in self.counted_ids and self.crossed_line(track_id, tracking_coord):
+                   direction = self.get_direction(track_id, tracking_coord)
+                   
+                   if direction:
+                       self.counted_ids.add(track_id)
+                       
+                       if self.counting_mode == "entrance_exit":
+                           if direction == self.entrance_direction:
+                               self.count_entrance += 1
+                               arrow = "⬇️" if movement_axis == "vertical" else "➡️"
+                               print(f"🚪{arrow} Persona #{track_id} ENTRÓ (Total entradas: {self.count_entrance})")
+                           else:
+                               self.count_exit += 1
+                               arrow = "⬆️" if movement_axis == "vertical" else "⬅️"
+                               print(f"🚪{arrow} Persona #{track_id} SALIÓ (Total salidas: {self.count_exit})")
+                       else:
+                           if direction == "positive":
+                               self.count_positive += 1
+                               arrow = "⬇️" if movement_axis == "vertical" else "➡️"
+                               direction_name = "ABAJO" if movement_axis == "vertical" else "DERECHA"
+                               print(f"{arrow} Persona #{track_id} fue hacia {direction_name} (Total: {self.count_positive})")
+                           else:
+                               self.count_negative += 1
+                               arrow = "⬆️" if movement_axis == "vertical" else "⬅️"
+                               direction_name = "ARRIBA" if movement_axis == "vertical" else "IZQUIERDA"
+                               print(f"{arrow} Persona #{track_id} fue hacia {direction_name} (Total: {self.count_negative})")
+       
+       # NO mostrar nada si no hay detecciones - elimina el spam
+       
+       return results[0], resized_frame
     
     def draw_annotations(self, frame, results):
         """Dibuja las anotaciones en el frame"""

@@ -1,115 +1,58 @@
-# Configuración del Sistema de Conteo de Personas con YOLOv11
+# Configuración del Sistema de Conteo de Personas - CORREGIDA
 # ================================================================
 
 # URL del stream RTSP
 RTSP_URL = "rtsp://admin:usuario1234@192.168.18.13:554/Streaming/channels/101?tcp"
 
 # Parámetros de captura
-VIDEO_DURATION_SECONDS = 15  # Duración de cada video en segundos
-MAX_VIDEOS = 50  # Máximo número de videos a capturar
-PROCESS_VIDEOS = True  # Si procesar videos automáticamente
-SHOW_LIVE = True  # Si mostrar frames procesados en vivo
+VIDEO_DURATION_SECONDS = 15
+MAX_VIDEOS = 5000000
+PROCESS_VIDEOS = True
+SHOW_LIVE = True
 
 # Parámetros del modelo YOLO
-YOLO_MODEL_PATH = "yolo11n.pt"  # Ruta del modelo YOLO
-TARGET_WIDTH = 640  # Ancho objetivo para redimensionar (640p)
-ROTATION_ANGLE = 180  # Ángulo de rotación: 0, 90, 180, 270 grados
+YOLO_MODEL_PATH = "yolo11n.pt"
+TARGET_WIDTH = 640
+ROTATION_ANGLE = 180
 
 # Directorios
-VIDEOS_OUTPUT_DIR = "videos"  # Directorio para videos capturados (sin procesar)
-STATS_OUTPUT_DIR = "stats"  # Directorio para estadísticas JSON
+VIDEOS_OUTPUT_DIR = "videos"
+STATS_OUTPUT_DIR = "stats"
 
 # Parámetros de detección
-DETECTION_CONFIDENCE_THRESHOLD = 0.25  # Umbral de confianza para detecciones
-DIRECTION_THRESHOLD = 50  # Píxeles mínimos de movimiento para contar
-TRACK_HISTORY_SIZE = 30  # Número de posiciones históricas a mantener
+DETECTION_CONFIDENCE_THRESHOLD = 0.3
+DIRECTION_THRESHOLD = 10        # MUY REDUCIDO - solo 10 píxeles
+TRACK_HISTORY_SIZE = 30
 
 # =====================================================================
-# CONFIGURACIÓN DE LÍNEA DE DETECCIÓN
+# CONFIGURACIÓN DE LÍNEA - BASADA EN DATOS REALES
 # =====================================================================
-# 🎯 EJECUTA: python line_calibrator.py para calibrar interactivamente
-# =====================================================================
-
-# Orientación de la línea de detección:
-# "vertical"   = Línea vertical, detecta movimiento HORIZONTAL (←→)
-# "horizontal" = Línea horizontal, detecta movimiento VERTICAL (↑↓)
-# Cambiar estas líneas:
-
-
-LINE_ORIENTATION = "horizontal"     # Era "vertical" 
-DETECTION_LINE_Y = 238              # Nueva línea
-DETECTION_LINE_X = None             # No se usa para horizontal
-DETECTION_LINE_RATIO = None         # Opcional
-LINE_MARGIN = 30                    # Mantener o ajustar
-COUNTING_MODE = "entrance_exit"     # Tu elección
-ENTRANCE_DIRECTION = "positive"     # Ajustar según tu escenario
-
-
-
-# =====================================================================
-# EJEMPLOS DE CONFIGURACIÓN SEGÚN TU ESCENARIO
+# Datos observados: Personas en Y=140-208 (centro ≈ Y=174)
 # =====================================================================
 
-# 📋 ESCENARIO 1: Puerta horizontal (tradicional)
-# ┌─────────────────────────────────────┐
-# │ 🏢 INTERIOR                         │
-# ├═════════════════════════════════════┤ ← Línea VERTICAL
-# │ 🛣️ EXTERIOR                         │
-# └─────────────────────────────────────┘
-# Configuración:
-# LINE_ORIENTATION = "vertical"
-# ENTRANCE_DIRECTION = "positive" (si derecha = entrada)
-
-# 📋 ESCENARIO 2: Puerta vertical
-# ┌─────┬─────┐
-# │ 🏢  │ 🛣️  │
-# │     ║     │ ← Línea HORIZONTAL
-# │     ║     │
-# │     ║     │
-# └─────┴─────┘
-# Configuración:
-# LINE_ORIENTATION = "horizontal"
-# ENTRANCE_DIRECTION = "positive" (si abajo = entrada)
-
-# 📋 ESCENARIO 3: Pasillo con movimiento bidireccional
-# LINE_ORIENTATION = "vertical" o "horizontal" según orientación
-# COUNTING_MODE = "directional" para ver ambas direcciones
+LINE_ORIENTATION = "horizontal"
+DETECTION_LINE_Y = 174          # CENTRO del rango observado (140+208)/2
+DETECTION_LINE_X = None
+DETECTION_LINE_RATIO = None
+LINE_MARGIN = 10               # Zona: 149-199 (cubre todo el rango)
+COUNTING_MODE = "entrance_exit"
+ENTRANCE_DIRECTION = "positive" # Las personas van de 140→208 (aumentando Y)
 
 # =====================================================================
-# INSTRUCCIONES DE CALIBRACIÓN
+# CÁLCULO DE LA LÍNEA:
 # =====================================================================
-# 1. Ejecuta: python line_calibrator.py
-# 2. Usa TAB para alternar entre línea vertical/horizontal
-# 3. Dibuja la línea donde quieres detectar el paso
-# 4. Ajusta el margen con +/-
-# 5. Presiona S para guardar
-# 6. Copia los parámetros generados aquí
-# 7. Configura ENTRANCE_DIRECTION según tu caso
+# Rango observado: Y=140 a Y=208
+# Centro: (140 + 208) / 2 = 174
+# Margen: 25 píxeles
+# Zona de detección: 149 ← 174 → 199
+# Esto cubre perfectamente el rango 140-208
 # =====================================================================
 
-# MAPEO DE DIRECCIONES SEGÚN ORIENTACIÓN:
-# ═══════════════════════════════════════
-# LÍNEA VERTICAL (detecta movimiento ←→):
-#   "positive" = DERECHA
-#   "negative" = IZQUIERDA
-#
-# LÍNEA HORIZONTAL (detecta movimiento ↑↓):
-#   "positive" = ABAJO  
-#   "negative" = ARRIBA
-# ═══════════════════════════════════════
-
 # =====================================================================
-# CONFIGURACIÓN AVANZADA
+# DIRECCIÓN SEMÁNTICA:
 # =====================================================================
-
-# Si ambos DETECTION_LINE_X/Y y DETECTION_LINE_RATIO son None,
-# el sistema usará el centro automáticamente
-
-# Para máxima precisión, usa línea calibrada + modo entrance_exit
-# Para análisis de flujo, usa modo directional
-
-# El sistema mostrará en pantalla:
-# - Línea de detección con área de margen
-# - Flechas indicando entrada/salida
-# - Contadores según el modo configurado
-# - Indicador si la línea está calibrada
+# ENTRANCE_DIRECTION = "positive" porque:
+# - Las personas van de Y=140 → Y=208 (aumentando Y)
+# - En línea horizontal, "positive" = hacia ABAJO
+# - Por tanto: ir hacia ABAJO = ENTRADA
+# =====================================================================
