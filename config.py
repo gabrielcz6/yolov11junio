@@ -1,4 +1,4 @@
-# Configuración del Sistema de Conteo de Personas - CORREGIDA
+# Configuración del Sistema de Conteo de Personas - CON FRAME SKIPPING DINÁMICO
 # ================================================================
 
 # URL del stream RTSP
@@ -25,10 +25,26 @@ DIRECTION_THRESHOLD = 10        # MUY REDUCIDO - solo 10 píxeles
 TRACK_HISTORY_SIZE = 30
 
 # =====================================================================
-# CONFIGURACIÓN DE LÍNEA - BASADA EN DATOS REALES
+# CONFIGURACIÓN DE FRAME SKIPPING DINÁMICO
 # =====================================================================
-# Datos observados: Personas en Y=140-208 (centro ≈ Y=174)
+# Optimización de rendimiento: saltar frames cuando no hay actividad
 # =====================================================================
+
+# Frame skipping por defecto (siempre activo)
+DEFAULT_FRAME_SKIP = 1          # Saltar 1 frame por defecto (procesar 1 de cada 2)
+# Frame skipping cuando no hay personas detectadas
+NO_DETECTION_FRAME_SKIP = 1     # Saltar 5 frames cuando no hay detecciones (procesar 1 de cada 6)
+# Número de frames consecutivos sin detección para activar modo "sin personas"
+NO_DETECTION_THRESHOLD = 10     # Después de 10 frames sin detecciones, usar skip de 5
+# Número de frames con detecciones para volver al modo normal
+DETECTION_RECOVERY_THRESHOLD = 3  # Después de 3 frames con detecciones, volver a skip de 1
+# Habilitar/deshabilitar frame skipping
+ENABLE_FRAME_SKIPPING = True    # True para activar, False para procesar todos los frames
+# Mostrar información de frame skipping en consola
+SHOW_FRAME_SKIP_INFO = True     # True para ver logs del frame skipping
+
+
+
 
 LINE_ORIENTATION = "horizontal"
 DETECTION_LINE_Y = 174          # CENTRO del rango observado (140+208)/2
@@ -37,22 +53,3 @@ DETECTION_LINE_RATIO = None
 LINE_MARGIN = 10               # Zona: 149-199 (cubre todo el rango)
 COUNTING_MODE = "entrance_exit"
 ENTRANCE_DIRECTION = "positive" # Las personas van de 140→208 (aumentando Y)
-
-# =====================================================================
-# CÁLCULO DE LA LÍNEA:
-# =====================================================================
-# Rango observado: Y=140 a Y=208
-# Centro: (140 + 208) / 2 = 174
-# Margen: 25 píxeles
-# Zona de detección: 149 ← 174 → 199
-# Esto cubre perfectamente el rango 140-208
-# =====================================================================
-
-# =====================================================================
-# DIRECCIÓN SEMÁNTICA:
-# =====================================================================
-# ENTRANCE_DIRECTION = "positive" porque:
-# - Las personas van de Y=140 → Y=208 (aumentando Y)
-# - En línea horizontal, "positive" = hacia ABAJO
-# - Por tanto: ir hacia ABAJO = ENTRADA
-# =====================================================================
