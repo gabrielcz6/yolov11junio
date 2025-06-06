@@ -1,2 +1,36 @@
+# Entorno virtual
 .venv
-videos
+venv/
+env/
+
+# Videos capturados (sin procesar)
+videos/
+
+# Estadísticas (opcional - puedes comentar si quieres versionar)
+stats/
+
+# Modelos YOLO descargados
+*.pt
+
+# Archivos temporales de Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+
+# Archivos del IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# Archivos del sistema
+.DS_Store
+Thumbs.db
+
+# Logs
+*.log
+
+# Archivos de configuración personal (si creas variantes)
+config_personal.py
+local_config.py
