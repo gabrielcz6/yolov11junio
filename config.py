@@ -1,4 +1,4 @@
-# Configuración del Sistema de Conteo de Personas - CON FRAME SKIPPING DINÁMICO
+# Configuración del Sistema de Conteo de Personas - CON FRAME SKIPPING CORREGIDO
 # ================================================================
 
 # URL del stream RTSP
@@ -20,32 +20,49 @@ VIDEOS_OUTPUT_DIR = "videos"
 STATS_OUTPUT_DIR = "stats"
 
 # Parámetros de detección
-DETECTION_CONFIDENCE_THRESHOLD = 0.3
+DETECTION_CONFIDENCE_THRESHOLD = 0.25
 DIRECTION_THRESHOLD = 10        # MUY REDUCIDO - solo 10 píxeles
 TRACK_HISTORY_SIZE = 30
 
 # =====================================================================
-# CONFIGURACIÓN DE FRAME SKIPPING DINÁMICO
+# CONFIGURACIÓN DE FRAME SKIPPING DINÁMICO - VERSIÓN CORREGIDA
 # =====================================================================
 # Optimización de rendimiento: saltar frames cuando no hay actividad
+# VALORES CORREGIDOS para evitar frames varados
 # =====================================================================
 
-# Frame skipping por defecto (siempre activo)
-DEFAULT_FRAME_SKIP = 1          # Saltar 1 frame por defecto (procesar 1 de cada 2)
-# Frame skipping cuando no hay personas detectadas
-NO_DETECTION_FRAME_SKIP = 1     # Saltar 5 frames cuando no hay detecciones (procesar 1 de cada 6)
-# Número de frames consecutivos sin detección para activar modo "sin personas"
-NO_DETECTION_THRESHOLD = 10     # Después de 10 frames sin detecciones, usar skip de 5
-# Número de frames con detecciones para volver al modo normal
-DETECTION_RECOVERY_THRESHOLD = 3  # Después de 3 frames con detecciones, volver a skip de 1
-# Habilitar/deshabilitar frame skipping
+# HABILITAR/DESHABILITAR FRAME SKIPPING
 ENABLE_FRAME_SKIPPING = True    # True para activar, False para procesar todos los frames
-# Mostrar información de frame skipping en consola
+
+# CONFIGURACIÓN CONSERVADORA para evitar problemas:
+DEFAULT_FRAME_SKIP = 0          # CORREGIDO: 0 = procesar todos los frames en modo normal
+NO_DETECTION_FRAME_SKIP = 1     # CORREGIDO: Skip moderado cuando no hay personas (procesar 1 de cada 3)
+
+# THRESHOLDS más conservadores:
+NO_DETECTION_THRESHOLD = 35     # CORREGIDO: Esperar más frames antes de cambiar modo
+DETECTION_RECOVERY_THRESHOLD = 5  # CORREGIDO: Más frames para confirmar detecciones
+
+# DEBUG Y LOGS
 SHOW_FRAME_SKIP_INFO = True     # True para ver logs del frame skipping
 
+# =====================================================================
+# CONFIGURACIÓN ALTERNATIVA PARA MÁXIMO RENDIMIENTO (comentada)
+# =====================================================================
+# Si necesitas máximo rendimiento, descomenta estas líneas:
+# DEFAULT_FRAME_SKIP = 1          # Skip normal más agresivo
+# NO_DETECTION_FRAME_SKIP = 4     # Skip alto sin detecciones
+# NO_DETECTION_THRESHOLD = 8      # Cambio más rápido
+# DETECTION_RECOVERY_THRESHOLD = 2  # Recuperación más rápida
 
+# =====================================================================
+# CONFIGURACIÓN SIN FRAME SKIPPING (para debugging)
+# =====================================================================
+# Si tienes problemas, descomenta esta línea para deshabilitar completamente:
+# ENABLE_FRAME_SKIPPING = False
 
-
+# =====================================================================
+# CONFIGURACIÓN DE LÍNEA DE DETECCIÓN
+# =====================================================================
 LINE_ORIENTATION = "horizontal"
 DETECTION_LINE_Y = 174          # CENTRO del rango observado (140+208)/2
 DETECTION_LINE_X = None
