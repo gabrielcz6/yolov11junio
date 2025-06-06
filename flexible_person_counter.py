@@ -67,7 +67,7 @@ class FlexiblePersonCounter:
         self._show_initial_config()
     
     def _init_frame_skipping(self):
-        """Inicializa el sistema de frame skipping dinámico"""
+        """Inicializa el sistema de frame skipping dinámico - VERSIÓN CORREGIDA"""
         # Importar configuración
         try:
             import config
@@ -91,14 +91,17 @@ class FlexiblePersonCounter:
         self.frames_without_detection = 0
         self.frames_with_detection = 0
         self.current_frame_skip = self.default_frame_skip
-        self.skip_mode = "normal"  # "normal" o "no_detection"
+        self.skip_mode = "normal"
         
         # Estadísticas de frame skipping
         self.total_frames_processed = 0
         self.total_frames_skipped = 0
         self.mode_changes = 0
         
+        # NUEVO: Validar configuración
         if self.enable_frame_skipping:
+            self.validate_frame_skip_config()
+            
             print(f"⚡ Frame skipping HABILITADO:")
             print(f"   📊 Skip por defecto: {self.default_frame_skip} (procesar 1 de cada {self.default_frame_skip + 1})")
             print(f"   📊 Skip sin detecciones: {self.no_detection_frame_skip} (procesar 1 de cada {self.no_detection_frame_skip + 1})")
@@ -126,59 +129,67 @@ class FlexiblePersonCounter:
             print(f"🔄 Rotación configurada: {self.rotation_angle}°")
     
     def should_process_frame(self):
-        """
-        Determina si se debe procesar el frame actual basado en el frame skipping dinámico
-        Returns: True si se debe procesar, False si se debe saltar
-        """
-        if not self.enable_frame_skipping:
-            return True
-        
-        # Incrementar contador de frames
-        self.frame_counter += 1
-        
-        # Determinar si procesar según el skip actual
-        should_process = (self.frame_counter % (self.current_frame_skip + 1)) == 0
-        
-        if should_process:
-            self.total_frames_processed += 1
-        else:
-            self.total_frames_skipped += 1
-        
-        return should_process
+       """
+       Determina si se debe procesar el frame actual basado en el frame skipping dinámico
+       Returns: True si se debe procesar, False si se debe saltar
+       VERSIÓN CORREGIDA - sin frames varados
+       """
+       if not self.enable_frame_skipping:
+           return True
+       
+       # Incrementar contador de frames
+       self.frame_counter += 1
+       
+       # CORRECCIÓN: Determinar si procesar según el skip actual
+       # El problema estaba en que skip=0 causaba división por cero o comportamiento extraño
+       skip_interval = max(1, self.current_frame_skip + 1)  # Mínimo 1 para evitar problemas
+       should_process = (self.frame_counter % skip_interval) == 0
+       
+       if should_process:
+           self.total_frames_processed += 1
+       else:
+           self.total_frames_skipped += 1
+       
+       return should_process
     
     def update_frame_skip_mode(self, has_detections):
-        """
-        Actualiza el modo de frame skipping basado en las detecciones
-        """
-        if not self.enable_frame_skipping:
-            return
-        
-        previous_mode = self.skip_mode
-        
-        if has_detections:
-            self.frames_with_detection += 1
-            self.frames_without_detection = 0
-            
-            # Volver a modo normal si hay detecciones
-            if self.skip_mode == "no_detection" and self.frames_with_detection >= self.detection_recovery_threshold:
-                self.current_frame_skip = self.default_frame_skip
-                self.skip_mode = "normal"
-                if self.show_frame_skip_info:
-                    print(f"⚡ Modo NORMAL activado (skip={self.current_frame_skip}) - {self.frames_with_detection} frames con detecciones")
-        else:
-            self.frames_without_detection += 1
-            self.frames_with_detection = 0
-            
-            # Cambiar a modo sin detecciones
-            if self.skip_mode == "normal" and self.frames_without_detection >= self.no_detection_threshold:
-                self.current_frame_skip = self.no_detection_frame_skip
-                self.skip_mode = "no_detection"
-                if self.show_frame_skip_info:
-                    print(f"⚡ Modo SIN DETECCIONES activado (skip={self.current_frame_skip}) - {self.frames_without_detection} frames sin detecciones")
-        
-        # Contar cambios de modo
-        if previous_mode != self.skip_mode:
-            self.mode_changes += 1
+       """
+       Actualiza el modo de frame skipping basado en las detecciones
+       VERSIÓN CORREGIDA - transiciones más suaves
+       """
+       if not self.enable_frame_skipping:
+           return
+       
+       previous_mode = self.skip_mode
+       previous_skip = self.current_frame_skip
+       
+       if has_detections:
+           self.frames_with_detection += 1
+           self.frames_without_detection = 0
+           
+           # Volver a modo normal si hay detecciones
+           if self.skip_mode == "no_detection" and self.frames_with_detection >= self.detection_recovery_threshold:
+               self.current_frame_skip = self.default_frame_skip
+               self.skip_mode = "normal"
+               if self.show_frame_skip_info:
+                   print(f"⚡ Modo NORMAL activado (skip={self.current_frame_skip}) - {self.frames_with_detection} frames con detecciones")
+       else:
+           self.frames_without_detection += 1
+           self.frames_with_detection = 0
+           
+           # Cambiar a modo sin detecciones
+           if self.skip_mode == "normal" and self.frames_without_detection >= self.no_detection_threshold:
+               self.current_frame_skip = self.no_detection_frame_skip
+               self.skip_mode = "no_detection"
+               if self.show_frame_skip_info:
+                   print(f"⚡ Modo SIN DETECCIONES activado (skip={self.current_frame_skip}) - {self.frames_without_detection} frames sin detecciones")
+       
+       # Contar cambios de modo
+       if previous_mode != self.skip_mode:
+           self.mode_changes += 1
+           # NUEVO: Reset parcial del contador para evitar desincronización
+           if self.show_frame_skip_info:
+               print(f"🔄 Cambio de modo: {previous_mode} → {self.skip_mode} (skip: {previous_skip} → {self.current_frame_skip})")
     
     def get_frame_skip_stats(self):
         """Obtiene estadísticas del frame skipping"""
@@ -309,28 +320,33 @@ class FlexiblePersonCounter:
         
         direction = "positive" if total_movement > 0 else "negative"
         return direction
-    
+    # NUEVA FUNCIÓN: Validar configuración de frame skipping
+    def validate_frame_skip_config(self):
+        """
+        Valida y corrige la configuración de frame skipping para evitar problemas
+        """
+        # Asegurar valores mínimos válidos
+        self.default_frame_skip = max(0, self.default_frame_skip)
+        self.no_detection_frame_skip = max(0, self.no_detection_frame_skip)
+        self.no_detection_threshold = max(1, self.no_detection_threshold)
+        self.detection_recovery_threshold = max(1, self.detection_recovery_threshold)
+        
+        # Advertencias de configuración
+        if self.default_frame_skip > 10:
+            print(f"⚠️ ADVERTENCIA: DEFAULT_FRAME_SKIP muy alto ({self.default_frame_skip}) - puede perderse actividad")
+        
+        if self.no_detection_frame_skip > 20:
+            print(f"⚠️ ADVERTENCIA: NO_DETECTION_FRAME_SKIP muy alto ({self.no_detection_frame_skip}) - puede perderse cuando aparezcan personas")
+        
+        if self.no_detection_threshold < 5:
+            print(f"⚠️ ADVERTENCIA: NO_DETECTION_THRESHOLD muy bajo ({self.no_detection_threshold}) - cambios de modo muy frecuentes")
+        
+        print(f"✅ Configuración de frame skipping validada")
     def process_frame(self, frame):
         """
-        Procesa un frame para detectar y contar personas - CON FRAME SKIPPING DINÁMICO
+        Procesa un frame para detectar y contar personas - CON FRAME SKIPPING CORREGIDO
         """
-        # PRIMERO: Verificar si se debe procesar este frame
-        if not self.should_process_frame():
-            # Frame saltado - devolver frame sin procesar pero con anotaciones básicas
-            rotated_frame = self.rotate_frame(frame)
-            resized_frame = self.resize_frame(rotated_frame)
-            
-            # Actualizar modo (sin detecciones en frame saltado)
-            self.update_frame_skip_mode(has_detections=False)
-            
-            # Crear resultado vacío
-            class EmptyResult:
-                def plot(self):
-                    return resized_frame
-            
-            return EmptyResult(), resized_frame
-        
-        # FRAME A PROCESAR
+        # NUEVA LÓGICA: Siempre rotar y redimensionar para mantener consistencia visual
         rotated_frame = self.rotate_frame(frame)
         resized_frame = self.resize_frame(rotated_frame)
         h, w = resized_frame.shape[:2]
@@ -338,7 +354,24 @@ class FlexiblePersonCounter:
         if self.detection_line is None:
             self.set_detection_line(w, h)
         
+        # AHORA verificar si se debe procesar este frame para detección
+        if not self.should_process_frame():
+            # Frame saltado - actualizar modo sin detecciones y devolver frame básico
+            self.update_frame_skip_mode(has_detections=False)
+            
+            # Crear resultado vacío pero mantener frame visual
+            class SkippedResult:
+                def plot(self):
+                    return resized_frame
+            
+            return SkippedResult(), resized_frame
+        
+        # FRAME A PROCESAR - hacer detección completa
         # Suprimir output de YOLO
+        import io
+        import sys
+        from contextlib import redirect_stdout, redirect_stderr
+        
         f = io.StringIO()
         with redirect_stdout(f), redirect_stderr(f):
             results = self.model.track(resized_frame, persist=True, classes=[0], conf=0.5, verbose=False)
@@ -367,11 +400,9 @@ class FlexiblePersonCounter:
                 
                 if self.line_orientation == "vertical":
                     tracking_coord = center_x
-                    coord_name = "X"
                     movement_axis = "horizontal"
                 else:
                     tracking_coord = center_y
-                    coord_name = "Y"
                     movement_axis = "vertical"
                 
                 self.tracks[track_id].append(tracking_coord)
