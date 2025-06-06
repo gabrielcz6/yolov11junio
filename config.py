@@ -36,11 +36,11 @@ ENABLE_FRAME_SKIPPING = True    # True para activar, False para procesar todos l
 
 # CONFIGURACIÓN CONSERVADORA para evitar problemas:
 DEFAULT_FRAME_SKIP = 0          # CORREGIDO: 0 = procesar todos los frames en modo normal
-NO_DETECTION_FRAME_SKIP = 1     # CORREGIDO: Skip moderado cuando no hay personas (procesar 1 de cada 3)
+NO_DETECTION_FRAME_SKIP = 3     # CORREGIDO: Skip moderado cuando no hay personas (procesar 1 de cada 3)
 
 # THRESHOLDS más conservadores:
-NO_DETECTION_THRESHOLD = 35     # CORREGIDO: Esperar más frames antes de cambiar modo
-DETECTION_RECOVERY_THRESHOLD = 5  # CORREGIDO: Más frames para confirmar detecciones
+NO_DETECTION_THRESHOLD = 45     # CORREGIDO: Esperar más frames antes de cambiar modo
+DETECTION_RECOVERY_THRESHOLD = 1  # CORREGIDO: Más frames para confirmar detecciones
 
 # DEBUG Y LOGS
 SHOW_FRAME_SKIP_INFO = True     # True para ver logs del frame skipping
