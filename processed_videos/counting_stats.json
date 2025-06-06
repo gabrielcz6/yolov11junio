@@ -1,0 +1,106 @@
+[
+  {
+    "video": "video1_20250606_122004.mp4",
+    "stats": {
+      "derecha": 0,
+      "izquierda": 0,
+      "total": 0,
+      "timestamp": "2025-06-06T12:20:54.637741",
+      "processing_time_seconds": 30.47,
+      "total_frames": 188,
+      "fps_processed": 6.17
+    },
+    "processed_at": "2025-06-06T12:20:54.638741"
+  },
+  {
+    "video": "video2_20250606_122023.mp4",
+    "stats": {
+      "derecha": 0,
+      "izquierda": 0,
+      "total": 0,
+      "timestamp": "2025-06-06T12:21:21.984254",
+      "processing_time_seconds": 27.31,
+      "total_frames": 188,
+      "fps_processed": 6.88
+    },
+    "processed_at": "2025-06-06T12:21:21.985255"
+  },
+  {
+    "video": "video3_20250606_122042.mp4",
+    "stats": {
+      "derecha": 0,
+      "izquierda": 0,
+      "total": 0,
+      "timestamp": "2025-06-06T12:21:52.541442",
+      "processing_time_seconds": 30.52,
+      "total_frames": 188,
+      "fps_processed": 6.16
+    },
+    "processed_at": "2025-06-06T12:21:52.542444"
+  },
+  {
+    "video": "video4_20250606_122101.mp4",
+    "stats": {
+      "derecha": 0,
+      "izquierda": 0,
+      "total": 0,
+      "timestamp": "2025-06-06T12:22:19.676160",
+      "processing_time_seconds": 27.1,
+      "total_frames": 188,
+      "fps_processed": 6.94
+    },
+    "processed_at": "2025-06-06T12:22:19.677156"
+  },
+  {
+    "video": "video5_20250606_122120.mp4",
+    "stats": {
+      "derecha": 0,
+      "izquierda": 0,
+      "total": 0,
+      "timestamp": "2025-06-06T12:22:45.850302",
+      "processing_time_seconds": 26.14,
+      "total_frames": 188,
+      "fps_processed": 7.19
+    },
+    "processed_at": "2025-06-06T12:22:45.851304"
+  },
+  {
+    "video": "video6_20250606_122140.mp4",
+    "stats": {
+      "derecha": 0,
+      "izquierda": 0,
+      "total": 0,
+      "timestamp": "2025-06-06T12:23:15.846458",
+      "processing_time_seconds": 29.96,
+      "total_frames": 188,
+      "fps_processed": 6.28
+    },
+    "processed_at": "2025-06-06T12:23:15.847459"
+  },
+  {
+    "video": "video7_20250606_122159.mp4",
+    "stats": {
+      "derecha": 0,
+      "izquierda": 0,
+      "total": 0,
+      "timestamp": "2025-06-06T12:23:46.928532",
+      "processing_time_seconds": 31.05,
+      "total_frames": 188,
+      "fps_processed": 6.05
+    },
+    "processed_at": "2025-06-06T12:23:46.929531"
+  },
+  {
+    "video": "video8_20250606_122218.mp4",
+    "stats": {
+      "derecha": 0,
+      "izquierda": 0,
+      "total": 0,
+      "timestamp": "2025-06-06T12:24:19.644531",
+      "processing_time_seconds": 32.68,
+      "total_frames": 188,
+      "fps_processed": 5.75
+    },
+    "processed_at": "2025-06-06T12:24:19.645530"
+  }
+]

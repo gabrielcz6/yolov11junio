@@ -1,0 +1,31 @@
+# Dependencias del Sistema de Captura RTSP y Conteo de Personas
+
+# Procesamiento de video y visión computacional
+opencv-python>=4.8.0
+ultralytics>=8.0.0
+
+# Procesamiento de arrays y matemáticas
+numpy>=1.21.0
+
+# Utilidades de sistema
+pathlib2>=2.3.0; python_version < '3.4'
+
+# Manejo de fechas y tiempo (incluido en Python estándar)
+# datetime - built-in
+
+# Estructuras de datos (incluido en Python estándar)
+# collections - built-in
+# queue - built-in
+
+# Procesamiento asíncrono (incluido en Python estándar >= 3.7)
+# asyncio - built-in
+
+# Subprocess y threading (incluido en Python estándar)
+# subprocess - built-in
+# threading - built-in
+
+# JSON (incluido en Python estándar)
+# json - built-in
+
+# Dependencias del sistema (instalar por separado):
+# FFmpeg - requerido para cap
