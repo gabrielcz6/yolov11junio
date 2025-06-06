@@ -296,69 +296,109 @@ class LineCalibrator:
             print(f"   📏 Longitud: {np.sqrt((x2-x1)**2 + (y2-y1)**2):.1f} píxeles")
     
     def draw_interface(self):
-        """
-        Dibuja la interfaz de calibración
-        """
-        if self.frame is None:
-            return None
-        
-        # Crear copia del frame para dibujar
-        display_frame = self.frame.copy()
-        h, w = display_frame.shape[:2]
-        
-        # Dibujar línea actual si existe
-        if self.line_start and self.line_end:
-            # Línea principal
-            cv2.line(display_frame, self.line_start, self.line_end, (0, 255, 255), 3)
-            
-            # Puntos de inicio y fin
-            cv2.circle(display_frame, self.line_start, 5, (0, 255, 0), -1)
-            cv2.circle(display_frame, self.line_end, 5, (0, 0, 255), -1)
-            
-            # Calcular línea vertical de detección
-            center_x = int((self.line_start[0] + self.line_end[0]) / 2)
-            
-            # Línea de detección vertical
-            cv2.line(display_frame, (center_x, 0), (center_x, h), (255, 0, 255), 2)
-            
-            # Área de detección (margen)
-            cv2.line(display_frame, (center_x - self.line_margin, 0), 
-                    (center_x - self.line_margin, h), (255, 0, 255), 1)
-            cv2.line(display_frame, (center_x + self.line_margin, 0), 
-                    (center_x + self.line_margin, h), (255, 0, 255), 1)
-            
-            # Texto de información
-            cv2.putText(display_frame, f"Linea X: {center_x}", 
-                       (10, 30), cv2.FONT_HERSHEY_SIMPLEX, 0.7, (255, 255, 255), 2)
-            cv2.putText(display_frame, f"Margen: {self.line_margin}px", 
-                       (10, 60), cv2.FONT_HERSHEY_SIMPLEX, 0.7, (255, 255, 255), 2)
-        
-        # Línea temporal mientras se dibuja
-        elif self.drawing and self.line_start and self.current_mouse_pos:
-            cv2.line(display_frame, self.line_start, self.current_mouse_pos, (0, 255, 255), 2)
-            cv2.circle(display_frame, self.line_start, 5, (0, 255, 0), -1)
-        
-        # Instrucciones
-        instructions = [
-            "CALIBRADOR DE LINEA DE DETECCION",
-            "Click y arrastra para dibujar la linea",
-            "ESC: Salir | R: Reset | S: Guardar | +/-: Ajustar margen"
-        ]
-        
-        for i, text in enumerate(instructions):
-            y_pos = h - 80 + (i * 25)
-            cv2.putText(display_frame, text, (10, y_pos), 
-                       cv2.FONT_HERSHEY_SIMPLEX, 0.6, (255, 255, 255), 2)
-        
-        # Información de resolución
-        info_text = f"Resolucion: {w}x{h}"
-        if self.rotation_angle != 0:
-            info_text += f" | Rotacion: {self.rotation_angle}°"
-        cv2.putText(display_frame, info_text, (10, h - 10), 
-                   cv2.FONT_HERSHEY_SIMPLEX, 0.5, (200, 200, 200), 1)
-        
-        return display_frame
-    
+       """
+       Dibuja la interfaz de calibración - VERSIÓN CORREGIDA
+       """
+       if self.frame is None:
+           return None
+       
+       # Crear copia del frame para dibujar
+       display_frame = self.frame.copy()
+       h, w = display_frame.shape[:2]
+       
+       # Dibujar línea actual si existe
+       if self.line_start and self.line_end:
+           # Línea principal dibujada por el usuario
+           cv2.line(display_frame, self.line_start, self.line_end, (0, 255, 255), 3)
+           
+           # Puntos de inicio y fin
+           cv2.circle(display_frame, self.line_start, 5, (0, 255, 0), -1)
+           cv2.circle(display_frame, self.line_end, 5, (0, 0, 255), -1)
+           
+           # Calcular línea de detección según orientación
+           if self.line_orientation == "vertical":
+               # Línea vertical de detección
+               center_x = int((self.line_start[0] + self.line_end[0]) / 2)
+               cv2.line(display_frame, (center_x, 0), (center_x, h), (255, 0, 255), 2)
+               
+               # Área de detección (margen)
+               cv2.line(display_frame, (center_x - self.line_margin, 0), 
+                       (center_x - self.line_margin, h), (255, 0, 255), 1)
+               cv2.line(display_frame, (center_x + self.line_margin, 0), 
+                       (center_x + self.line_margin, h), (255, 0, 255), 1)
+               
+               # Texto de información
+               cv2.putText(display_frame, f"Linea X: {center_x}", 
+                          (10, 30), cv2.FONT_HERSHEY_SIMPLEX, 0.7, (255, 255, 255), 2)
+               
+               # Flechas indicando direcciones de movimiento HORIZONTAL
+               arrow_y = h//2
+               # Flecha DERECHA (entrada)
+               cv2.arrowedLine(display_frame, (50, arrow_y), (100, arrow_y), (0, 255, 0), 3, tipLength=0.3)
+               cv2.putText(display_frame, "ENTRADA", (50, arrow_y - 20), 
+                          cv2.FONT_HERSHEY_SIMPLEX, 0.5, (0, 255, 0), 2)
+               
+               # Flecha IZQUIERDA (salida)
+               cv2.arrowedLine(display_frame, (w - 50, arrow_y), (w - 100, arrow_y), (0, 0, 255), 3, tipLength=0.3)
+               cv2.putText(display_frame, "SALIDA", (w - 100, arrow_y - 20), 
+                          cv2.FONT_HERSHEY_SIMPLEX, 0.5, (0, 0, 255), 2)
+           
+           else:  # LÍNEA HORIZONTAL
+               # Línea horizontal de detección
+               center_y = int((self.line_start[1] + self.line_end[1]) / 2)
+               cv2.line(display_frame, (0, center_y), (w, center_y), (255, 0, 255), 2)
+               
+               # Área de detección (margen)
+               cv2.line(display_frame, (0, center_y - self.line_margin), 
+                       (w, center_y - self.line_margin), (255, 0, 255), 1)
+               cv2.line(display_frame, (0, center_y + self.line_margin), 
+                       (w, center_y + self.line_margin), (255, 0, 255), 1)
+               
+               # Texto de información
+               cv2.putText(display_frame, f"Linea Y: {center_y}", 
+                          (10, 30), cv2.FONT_HERSHEY_SIMPLEX, 0.7, (255, 255, 255), 2)
+               
+               # Flechas indicando direcciones de movimiento VERTICAL
+               arrow_x = w//2
+               # Flecha ABAJO (entrada)
+               cv2.arrowedLine(display_frame, (arrow_x, 50), (arrow_x, 100), (0, 255, 0), 3, tipLength=0.3)
+               cv2.putText(display_frame, "ENTRADA", (arrow_x - 40, 40), 
+                          cv2.FONT_HERSHEY_SIMPLEX, 0.5, (0, 255, 0), 2)
+               
+               # Flecha ARRIBA (salida)
+               cv2.arrowedLine(display_frame, (arrow_x, h - 50), (arrow_x, h - 100), (0, 0, 255), 3, tipLength=0.3)
+               cv2.putText(display_frame, "SALIDA", (arrow_x - 30, h - 10), 
+                          cv2.FONT_HERSHEY_SIMPLEX, 0.5, (0, 0, 255), 2)
+           
+           cv2.putText(display_frame, f"Margen: {self.line_margin}px", 
+                      (10, 60), cv2.FONT_HERSHEY_SIMPLEX, 0.7, (255, 255, 255), 2)
+       
+       # Línea temporal mientras se dibuja
+       elif self.drawing and self.line_start and self.current_mouse_pos:
+           cv2.line(display_frame, self.line_start, self.current_mouse_pos, (0, 255, 255), 2)
+           cv2.circle(display_frame, self.line_start, 5, (0, 255, 0), -1)
+       
+       # Instrucciones
+       instructions = [
+           f"CALIBRADOR DE LINEA {self.line_orientation.upper()}",
+           "Click y arrastra para dibujar la linea",
+           "TAB: Cambiar orientacion | ESC: Salir | R: Reset | S: Guardar | +/-: Margen"
+       ]
+       
+       for i, text in enumerate(instructions):
+           y_pos = h - 80 + (i * 25)
+           cv2.putText(display_frame, text, (10, y_pos), 
+                      cv2.FONT_HERSHEY_SIMPLEX, 0.6, (255, 255, 255), 2)
+       
+       # Información de resolución y orientación
+       info_text = f"Resolucion: {w}x{h} | Orientacion: {self.line_orientation}"
+       if self.rotation_angle != 0:
+           info_text += f" | Rotacion: {self.rotation_angle}°"
+       cv2.putText(display_frame, info_text, (10, h - 10), 
+                  cv2.FONT_HERSHEY_SIMPLEX, 0.5, (200, 200, 200), 1)
+       
+       return display_frame
+  
     def generate_config_parameters(self):
         """
         Genera los parámetros para config.py
