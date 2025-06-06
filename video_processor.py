@@ -10,6 +10,7 @@ class VideoProcessor:
     """
     Clase para procesar videos con el nuevo FlexiblePersonCounter
     Soporta líneas horizontales y verticales con configuración semántica
+    INCLUYE FRAME SKIPPING DINÁMICO para optimización de rendimiento
     """
     
     def __init__(self, stats_dir="stats"):
@@ -98,6 +99,14 @@ class VideoProcessor:
                 directions = "ABAJO" if self.counter.entrance_direction == "positive" else "ARRIBA"
             print(f"🚪 Personas que van hacia {directions} = ENTRAN")
         
+        # Información de frame skipping
+        if self.counter.enable_frame_skipping:
+            print(f"⚡ Frame skipping: HABILITADO")
+            print(f"   📊 Skip normal: {self.counter.default_frame_skip} (1 de cada {self.counter.default_frame_skip + 1})")
+            print(f"   📊 Skip sin detecciones: {self.counter.no_detection_frame_skip} (1 de cada {self.counter.no_detection_frame_skip + 1})")
+        else:
+            print(f"⚡ Frame skipping: DESHABILITADO")
+        
         print("="*60)
     
     def save_stats(self, video_name, stats):
@@ -118,7 +127,7 @@ class VideoProcessor:
             print(f"❌ Error guardando estadísticas: {e}")
     
     def process_video_live(self, video_path, show_live=True):
-        """Procesa un video mostrando frames en vivo"""
+        """Procesa un video mostrando frames en vivo CON FRAME SKIPPING DINÁMICO"""
         video_path = Path(video_path)
         print(f"\n🎬 Procesando video EN VIVO: {video_path.name}")
         
@@ -130,6 +139,11 @@ class VideoProcessor:
             config_info.append("CALIBRADA")
         else:
             config_info.append("DEFECTO")
+        
+        if self.counter.enable_frame_skipping:
+            config_info.append(f"Skip: {self.counter.default_frame_skip}/{self.counter.no_detection_frame_skip}")
+        else:
+            config_info.append("Sin Skip")
         
         print(f"📏 Configuración: {' | '.join(config_info)}")
         
@@ -152,12 +166,13 @@ class VideoProcessor:
         print(f"👁️ Mostrando frames en vivo - Presiona 'q' para saltar, 'ESC' para salir")
         
         # Calcular delay para reproducir a velocidad original
-        frame_delay = 1.0 / fps if fps > 0 else 0.033
+        base_frame_delay = 1.0 / fps if fps > 0 else 0.033
         
         # Procesar frames
         frame_count = 0
         start_time = time.time()
         last_progress_time = start_time
+        last_skip_info_time = start_time
         
         try:
             while True:
@@ -165,7 +180,9 @@ class VideoProcessor:
                 if not ret:
                     break
                 
-                # Procesar frame
+                frame_count += 1
+                
+                # Procesar frame (con frame skipping interno)
                 results, resized_frame = self.counter.process_frame(frame)
                 annotated_frame = self.counter.draw_annotations(resized_frame, results)
                 
@@ -176,11 +193,20 @@ class VideoProcessor:
                         window_title += ' (CALIBRADA)'
                     if self.counter.line_orientation == "horizontal":
                         window_title += ' [HORIZONTAL]'
+                    if self.counter.enable_frame_skipping:
+                        window_title += f' [SKIP: {self.counter.skip_mode.upper()}]'
                     
                     cv2.imshow(window_title, annotated_frame)
                     
+                    # Ajustar delay según frame skipping
+                    # Si se saltaron frames, mostrar más rápido para compensar
+                    current_delay = base_frame_delay
+                    if self.counter.enable_frame_skipping and self.counter.current_frame_skip > 0:
+                        # Reducir delay proporcionalmente al skip
+                        current_delay = base_frame_delay / (self.counter.current_frame_skip + 1)
+                    
                     # Control de teclado
-                    key = cv2.waitKey(int(frame_delay * 1000)) & 0xFF
+                    key = cv2.waitKey(int(current_delay * 1000)) & 0xFF
                     if key == ord('q'):
                         print(f"⏭️ Saltando video {video_path.name}")
                         break
@@ -189,8 +215,6 @@ class VideoProcessor:
                         cap.release()
                         cv2.destroyAllWindows()
                         return "exit"
-                
-                frame_count += 1
                 
                 # Mostrar progreso cada 5 segundos
                 current_time = time.time()
@@ -212,6 +236,15 @@ class VideoProcessor:
                           f"FPS: {fps_processed:.1f} | {stats_text}")
                     
                     last_progress_time = current_time
+                
+                # Mostrar info de frame skipping cada 10 segundos
+                if self.counter.enable_frame_skipping and current_time - last_skip_info_time >= 10.0:
+                    skip_stats = self.counter.get_frame_skip_stats()
+                    if skip_stats:
+                        print(f"⚡ Skip: {skip_stats['current_mode']} | "
+                              f"Eficiencia: {skip_stats['skip_percentage']:.1f}% | "
+                              f"Cambios: {skip_stats['mode_changes']}")
+                    last_skip_info_time = current_time
         
         except KeyboardInterrupt:
             print(f"\n🛑 Procesamiento detenido por usuario")
@@ -253,6 +286,10 @@ class VideoProcessor:
             else:
                 print(f"   📍 Línea Y: {self.counter.detection_line} (±{self.counter.line_margin}px)")
         
+        # Mostrar resumen de frame skipping
+        if self.counter.enable_frame_skipping:
+            self.counter.print_frame_skip_summary()
+        
         # Guardar estadísticas
         self.save_stats(video_path.name, stats)
         
@@ -276,6 +313,51 @@ class VideoProcessor:
         vertical_videos = sum(1 for e in self.all_stats if e['stats'].get('line_orientation') == 'vertical')
         horizontal_videos = sum(1 for e in self.all_stats if e['stats'].get('line_orientation') == 'horizontal')
         
+        # Estadísticas de frame skipping
+        if summary['videos_con_frame_skipping'] > 0:
+            print(f"\n⚡ ESTADÍSTICAS DE FRAME SKIPPING:")
+            print(f"   📊 Videos con frame skipping: {summary['videos_con_frame_skipping']}")
+            if 'promedio_eficiencia_skip' in summary:
+                print(f"   📈 Eficiencia promedio: {summary['promedio_eficiencia_skip']:.2f}% frames saltados")
+                print(f"   🚀 Mejora de rendimiento: {summary['mejora_rendimiento_promedio']}x más rápido")
+                print(f"   ⚡ Total frames saltados: {summary.get('total_frames_saltados', 0):,}")
+                print(f"   ✅ Total frames procesados: {summary.get('total_frames_procesados', 0):,}")
+        
+        # Estadísticas de entrada/salida
+        if summary.get('total_entradas') is not None:
+            print(f"\n🚪 ESTADÍSTICAS ENTRADA/SALIDA:")
+            print(f"   ➡️ Total ENTRADAS: {summary['total_entradas']}")
+            print(f"   ⬅️ Total SALIDAS: {summary['total_salidas']}")
+            print(f"   👥 PERSONAS DENTRO: {summary['personas_dentro_actual']}")
+            print(f"   📈 Total movimientos: {summary['total_movimientos']}")
+        
+        # Estadísticas direccionales
+        if summary.get('total_direccion_positiva') is not None:
+            print(f"\n📐 ESTADÍSTICAS DIRECCIONALES:")
+            print(f"   ➡️⬇️ Dirección positiva: {summary['total_direccion_positiva']}")
+            print(f"   ⬅️⬆️ Dirección negativa: {summary['total_direccion_negativa']}")
+            print(f"   📊 Total direccional: {summary['total_direccional']}")
+        
+        # Recomendaciones
+        print(f"\n💡 RECOMENDACIONES:")
+        if summary['videos_con_linea_defecto'] > 0:
+            print(f"   • {summary['videos_con_linea_defecto']} videos usaron línea por defecto")
+            print(f"   • Ejecuta 'python line_calibrator.py' para calibrar línea")
+            print(f"   • Esto mejorará la precisión del conteo")
+        
+        if summary['videos_con_frame_skipping'] == 0:
+            print(f"   • Frame skipping deshabilitado en todos los videos")
+            print(f"   • Habilita ENABLE_FRAME_SKIPPING = True en config.py para mejor rendimiento")
+        elif summary.get('promedio_eficiencia_skip', 0) < 20:
+            print(f"   • Eficiencia de frame skipping baja ({summary.get('promedio_eficiencia_skip', 0):.1f}%)")
+            print(f"   • Considera ajustar NO_DETECTION_FRAME_SKIP en config.py")
+        
+        if summary['videos_modo_direccional'] > 0 and summary['videos_modo_entrada_salida'] == 0:
+            print(f"   • Considera usar COUNTING_MODE = 'entrance_exit' para mejor semántica")
+        
+        print("="*70) 
+        skip_enabled_videos = sum(1 for e in self.all_stats if e['stats'].get('frame_skipping_enabled', False))
+        
         summary = {
             "total_videos_procesados": total_videos,
             "videos_con_linea_calibrada": calibrated_videos,
@@ -284,8 +366,23 @@ class VideoProcessor:
             "videos_linea_horizontal": horizontal_videos,
             "videos_modo_entrada_salida": len(entrance_exit_videos),
             "videos_modo_direccional": len(directional_videos),
+            "videos_con_frame_skipping": skip_enabled_videos,
             "ultima_actualizacion": datetime.now().isoformat()
         }
+        
+        # Estadísticas de frame skipping
+        if skip_enabled_videos > 0:
+            skip_videos = [e for e in self.all_stats if e['stats'].get('frame_skipping_enabled', False)]
+            avg_skip_efficiency = sum(e['stats'].get('skip_efficiency_percent', 0) for e in skip_videos) / len(skip_videos)
+            total_frames_skipped = sum(e['stats'].get('frames_skipped', 0) for e in skip_videos)
+            total_frames_processed = sum(e['stats'].get('frames_processed', 0) for e in skip_videos)
+            
+            summary.update({
+                "promedio_eficiencia_skip": round(avg_skip_efficiency, 2),
+                "total_frames_saltados": total_frames_skipped,
+                "total_frames_procesados": total_frames_processed,
+                "mejora_rendimiento_promedio": round(100 / (100 - avg_skip_efficiency), 2) if avg_skip_efficiency < 100 else "∞"
+            })
         
         # Estadísticas para modo entrada/salida
         if entrance_exit_videos:
@@ -331,29 +428,4 @@ class VideoProcessor:
         print(f"📐 Línea vertical: {summary['videos_linea_vertical']} | Horizontal: {summary['videos_linea_horizontal']}")
         print(f"📊 Modo entrada/salida: {summary['videos_modo_entrada_salida']} | Direccional: {summary['videos_modo_direccional']}")
         
-        # Estadísticas de entrada/salida
-        if summary.get('total_entradas') is not None:
-            print(f"\n🚪 ESTADÍSTICAS ENTRADA/SALIDA:")
-            print(f"   ➡️ Total ENTRADAS: {summary['total_entradas']}")
-            print(f"   ⬅️ Total SALIDAS: {summary['total_salidas']}")
-            print(f"   👥 PERSONAS DENTRO: {summary['personas_dentro_actual']}")
-            print(f"   📈 Total movimientos: {summary['total_movimientos']}")
-        
-        # Estadísticas direccionales
-        if summary.get('total_direccion_positiva') is not None:
-            print(f"\n📐 ESTADÍSTICAS DIRECCIONALES:")
-            print(f"   ➡️⬇️ Dirección positiva: {summary['total_direccion_positiva']}")
-            print(f"   ⬅️⬆️ Dirección negativa: {summary['total_direccion_negativa']}")
-            print(f"   📊 Total direccional: {summary['total_direccional']}")
-        
-        # Recomendaciones
-        if summary['videos_con_linea_defecto'] > 0:
-            print(f"\n💡 RECOMENDACIONES:")
-            print(f"   • {summary['videos_con_linea_defecto']} videos usaron línea por defecto")
-            print(f"   • Ejecuta 'python line_calibrator.py' para calibrar línea")
-            print(f"   • Esto mejorará la precisión del conteo")
-        
-        if summary['videos_modo_direccional'] > 0 and summary['videos_modo_entrada_salida'] == 0:
-            print(f"   • Considera usar COUNTING_MODE = 'entrance_exit' para mejor semántica")
-        
-        print("="*70)
+        # Estadísticas de

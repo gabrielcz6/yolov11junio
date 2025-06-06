@@ -12,6 +12,7 @@ class FlexiblePersonCounter:
     """
     Contador de personas que soporta líneas horizontales y verticales
     Para detectar movimiento en cualquier dirección
+    CON FRAME SKIPPING DINÁMICO para optimización de rendimiento
     """
     
     def __init__(self, model_path="yolo11n.pt", target_width=640, rotation_angle=0,
@@ -57,7 +58,57 @@ class FlexiblePersonCounter:
         # Información de configuración
         self.line_calibrated = detection_line_position is not None or detection_line_ratio is not None
         
+        # =====================================================================
+        # NUEVA FUNCIONALIDAD: FRAME SKIPPING DINÁMICO
+        # =====================================================================
+        self._init_frame_skipping()
+        
         # Mostrar configuración
+        self._show_initial_config()
+    
+    def _init_frame_skipping(self):
+        """Inicializa el sistema de frame skipping dinámico"""
+        # Importar configuración
+        try:
+            import config
+            self.enable_frame_skipping = getattr(config, 'ENABLE_FRAME_SKIPPING', True)
+            self.default_frame_skip = getattr(config, 'DEFAULT_FRAME_SKIP', 1)
+            self.no_detection_frame_skip = getattr(config, 'NO_DETECTION_FRAME_SKIP', 5)
+            self.no_detection_threshold = getattr(config, 'NO_DETECTION_THRESHOLD', 10)
+            self.detection_recovery_threshold = getattr(config, 'DETECTION_RECOVERY_THRESHOLD', 3)
+            self.show_frame_skip_info = getattr(config, 'SHOW_FRAME_SKIP_INFO', True)
+        except:
+            # Valores por defecto si no se puede importar config
+            self.enable_frame_skipping = True
+            self.default_frame_skip = 1
+            self.no_detection_frame_skip = 5
+            self.no_detection_threshold = 10
+            self.detection_recovery_threshold = 3
+            self.show_frame_skip_info = True
+        
+        # Estado del frame skipping
+        self.frame_counter = 0
+        self.frames_without_detection = 0
+        self.frames_with_detection = 0
+        self.current_frame_skip = self.default_frame_skip
+        self.skip_mode = "normal"  # "normal" o "no_detection"
+        
+        # Estadísticas de frame skipping
+        self.total_frames_processed = 0
+        self.total_frames_skipped = 0
+        self.mode_changes = 0
+        
+        if self.enable_frame_skipping:
+            print(f"⚡ Frame skipping HABILITADO:")
+            print(f"   📊 Skip por defecto: {self.default_frame_skip} (procesar 1 de cada {self.default_frame_skip + 1})")
+            print(f"   📊 Skip sin detecciones: {self.no_detection_frame_skip} (procesar 1 de cada {self.no_detection_frame_skip + 1})")
+            print(f"   🎯 Threshold sin detecciones: {self.no_detection_threshold} frames")
+            print(f"   🎯 Threshold recuperación: {self.detection_recovery_threshold} frames")
+        else:
+            print("⚡ Frame skipping DESHABILITADO - procesando todos los frames")
+    
+    def _show_initial_config(self):
+        """Muestra la configuración inicial"""
         print(f"📏 Orientación de línea: {self.line_orientation.upper()}")
         if self.line_orientation == "vertical":
             print("   📐 Detecta movimiento HORIZONTAL (←→)")
@@ -71,8 +122,84 @@ class FlexiblePersonCounter:
             print(f"🚪 Dirección de ENTRADA: {self.entrance_direction.upper()}")
             print(f"🚪 Direcciones detectadas: {directions}")
         
-        if rotation_angle != 0:
-            print(f"🔄 Rotación configurada: {rotation_angle}°")
+        if self.rotation_angle != 0:
+            print(f"🔄 Rotación configurada: {self.rotation_angle}°")
+    
+    def should_process_frame(self):
+        """
+        Determina si se debe procesar el frame actual basado en el frame skipping dinámico
+        Returns: True si se debe procesar, False si se debe saltar
+        """
+        if not self.enable_frame_skipping:
+            return True
+        
+        # Incrementar contador de frames
+        self.frame_counter += 1
+        
+        # Determinar si procesar según el skip actual
+        should_process = (self.frame_counter % (self.current_frame_skip + 1)) == 0
+        
+        if should_process:
+            self.total_frames_processed += 1
+        else:
+            self.total_frames_skipped += 1
+        
+        return should_process
+    
+    def update_frame_skip_mode(self, has_detections):
+        """
+        Actualiza el modo de frame skipping basado en las detecciones
+        """
+        if not self.enable_frame_skipping:
+            return
+        
+        previous_mode = self.skip_mode
+        
+        if has_detections:
+            self.frames_with_detection += 1
+            self.frames_without_detection = 0
+            
+            # Volver a modo normal si hay detecciones
+            if self.skip_mode == "no_detection" and self.frames_with_detection >= self.detection_recovery_threshold:
+                self.current_frame_skip = self.default_frame_skip
+                self.skip_mode = "normal"
+                if self.show_frame_skip_info:
+                    print(f"⚡ Modo NORMAL activado (skip={self.current_frame_skip}) - {self.frames_with_detection} frames con detecciones")
+        else:
+            self.frames_without_detection += 1
+            self.frames_with_detection = 0
+            
+            # Cambiar a modo sin detecciones
+            if self.skip_mode == "normal" and self.frames_without_detection >= self.no_detection_threshold:
+                self.current_frame_skip = self.no_detection_frame_skip
+                self.skip_mode = "no_detection"
+                if self.show_frame_skip_info:
+                    print(f"⚡ Modo SIN DETECCIONES activado (skip={self.current_frame_skip}) - {self.frames_without_detection} frames sin detecciones")
+        
+        # Contar cambios de modo
+        if previous_mode != self.skip_mode:
+            self.mode_changes += 1
+    
+    def get_frame_skip_stats(self):
+        """Obtiene estadísticas del frame skipping"""
+        total_frames = self.total_frames_processed + self.total_frames_skipped
+        if total_frames == 0:
+            return None
+        
+        skip_percentage = (self.total_frames_skipped / total_frames) * 100
+        
+        return {
+            "enabled": self.enable_frame_skipping,
+            "current_mode": self.skip_mode,
+            "current_skip": self.current_frame_skip,
+            "total_frames": total_frames,
+            "frames_processed": self.total_frames_processed,
+            "frames_skipped": self.total_frames_skipped,
+            "skip_percentage": round(skip_percentage, 2),
+            "mode_changes": self.mode_changes,
+            "frames_without_detection": self.frames_without_detection,
+            "frames_with_detection": self.frames_with_detection
+        }
     
     def _get_rotation_code(self, angle):
         """Convierte el ángulo de rotación a código OpenCV"""
@@ -134,209 +261,155 @@ class FlexiblePersonCounter:
         
         print(f"📏 Línea de detección establecida: {line_type} = {self.detection_line}")
     
-    # DIAGNÓSTICO ESPECÍFICO PARA CONTEO
-# Reemplaza los métodos crossed_line y get_direction en flexible_person_counter.py
-
     def crossed_line(self, track_id, current_pos):
-      """Verifica si la persona cruzó la línea - CON DEBUG DETALLADO"""
-      if not self.detection_line or len(self.tracks[track_id]) < 2:
-          print(f"🔍 ID {track_id}: Sin línea o historial insuficiente")
-          return False
-      
-      positions = list(self.tracks[track_id])
-      prev_pos = positions[-2] if len(positions) >= 2 else positions[-1]
-      
-      line_before = self.detection_line - self.line_margin
-      line_after = self.detection_line + self.line_margin
-      
-      print(f"🎯 ID {track_id} - ANÁLISIS DE CRUCE:")
-      print(f"   📍 Posición anterior: {prev_pos}")
-      print(f"   📍 Posición actual: {current_pos}")
-      print(f"   📏 Zona de detección: {line_before} ← {self.detection_line} → {line_after}")
-      print(f"   📐 Orientación: {self.line_orientation}")
-      
-      # Cruzó en dirección positiva (derecha/abajo)
-      crossed_positive = prev_pos < line_before and current_pos > line_after
-      # Cruzó en dirección negativa (izquierda/arriba)  
-      crossed_negative = prev_pos > line_after and current_pos < line_before
-      
-      print(f"   🚪 Cruzó hacia POSITIVO ({self.line_orientation}): {crossed_positive}")
-      print(f"   🚪 Cruzó hacia NEGATIVO ({self.line_orientation}): {crossed_negative}")
-      
-      if crossed_positive:
-          direction_name = "ABAJO" if self.line_orientation == "horizontal" else "DERECHA"
-          print(f"   ✅ ¡CRUCE DETECTADO! Dirección: {direction_name}")
-          return True
-      elif crossed_negative:
-          direction_name = "ARRIBA" if self.line_orientation == "horizontal" else "IZQUIERDA"
-          print(f"   ✅ ¡CRUCE DETECTADO! Dirección: {direction_name}")
-          return True
-      else:
-          print(f"   ❌ No hay cruce - persona aún no atravesó completamente")
-          # Mostrar análisis detallado
-          if prev_pos >= line_before and prev_pos <= line_after:
-              print(f"      📍 Anterior DENTRO de zona: {prev_pos}")
-          if current_pos >= line_before and current_pos <= line_after:
-              print(f"      📍 Actual DENTRO de zona: {current_pos}")
-          return False
-
-    def crossed_line(self, track_id, current_pos):
-       """Verifica si la persona cruzó la línea - LÓGICA SIMPLIFICADA"""
-       if not self.detection_line or len(self.tracks[track_id]) < 5:  # Mínimo 5 puntos
-           return False
-       
-       positions = list(self.tracks[track_id])
-       
-       # Obtener posiciones de inicio y final del trayecto
-       start_pos = positions[0]
-       end_pos = positions[-1]
-       
-       line_before = self.detection_line - self.line_margin
-       line_after = self.detection_line + self.line_margin
-       
-       print(f"🎯 ID {track_id} - NUEVO ANÁLISIS DE CRUCE:")
-       print(f"   📍 Posición inicial: {start_pos}")
-       print(f"   📍 Posición actual: {end_pos}")
-       print(f"   📏 Zona de detección: {line_before} ← {self.detection_line} → {line_after}")
-       
-       # NUEVA LÓGICA: ¿Cruzó completamente la zona?
-       crossed_positive = start_pos < line_before and end_pos > line_after
-       crossed_negative = start_pos > line_after and end_pos < line_before
-       
-       print(f"   🚪 Cruzó COMPLETAMENTE hacia POSITIVO: {crossed_positive}")
-       print(f"   🚪 Cruzó COMPLETAMENTE hacia NEGATIVO: {crossed_negative}")
-       
-       if crossed_positive:
-           direction_name = "ABAJO" if self.line_orientation == "horizontal" else "DERECHA"
-           print(f"   ✅ ¡CRUCE COMPLETO! Dirección: {direction_name}")
-           return True
-       elif crossed_negative:
-           direction_name = "ARRIBA" if self.line_orientation == "horizontal" else "IZQUIERDA"
-           print(f"   ✅ ¡CRUCE COMPLETO! Dirección: {direction_name}")
-           return True
-       else:
-           print(f"   ❌ No hay cruce completo")
-           print(f"      📊 Para cruce positivo necesita: start < {line_before} AND end > {line_after}")
-           print(f"      📊 Para cruce negativo necesita: start > {line_after} AND end < {line_before}")
-           print(f"      📊 Actual: start={start_pos}, end={end_pos}")
-           return False
-   
-# T   AMBIÉN MEJORAR get_direction para que use TODO el trayecto:
-
+        """Verifica si la persona cruzó la línea - LÓGICA SIMPLIFICADA"""
+        if not self.detection_line or len(self.tracks[track_id]) < 5:  # Mínimo 5 puntos
+            return False
+        
+        positions = list(self.tracks[track_id])
+        
+        # Obtener posiciones de inicio y final del trayecto
+        start_pos = positions[0]
+        end_pos = positions[-1]
+        
+        line_before = self.detection_line - self.line_margin
+        line_after = self.detection_line + self.line_margin
+        
+        # NUEVA LÓGICA: ¿Cruzó completamente la zona?
+        crossed_positive = start_pos < line_before and end_pos > line_after
+        crossed_negative = start_pos > line_after and end_pos < line_before
+        
+        if crossed_positive or crossed_negative:
+            direction_name = ""
+            if crossed_positive:
+                direction_name = "ABAJO" if self.line_orientation == "horizontal" else "DERECHA"
+            else:
+                direction_name = "ARRIBA" if self.line_orientation == "horizontal" else "IZQUIERDA"
+            
+            if self.show_frame_skip_info:
+                print(f"   ✅ ¡CRUCE COMPLETO! ID {track_id} hacia {direction_name}")
+            return True
+        
+        return False
+    
     def get_direction(self, track_id, current_pos):
-         """Determina la dirección usando TODO el trayecto"""
-         if len(self.tracks[track_id]) < 5:
-             print(f"🧭 ID {track_id}: Trayecto muy corto para determinar dirección")
-             return None
-         
-         positions = list(self.tracks[track_id])
-         start_pos = positions[0]
-         end_pos = positions[-1]
-         
-         # Calcular movimiento total
-         total_movement = end_pos - start_pos
-         
-         print(f"🧭 ID {track_id} - ANÁLISIS DE DIRECCIÓN TOTAL:")
-         print(f"   📍 Posición inicial: {start_pos}")
-         print(f"   📍 Posición final: {end_pos}")
-         print(f"   📏 Movimiento TOTAL: {total_movement} píxeles")
-         print(f"   📊 Threshold requerido: {self.direction_threshold} píxeles")
-         
-         if abs(total_movement) < self.direction_threshold:
-             print(f"   ❌ Movimiento total insuficiente: {abs(total_movement)} < {self.direction_threshold}")
-             return None
-         
-         direction = "positive" if total_movement > 0 else "negative"
-         
-         if self.line_orientation == "horizontal":
-             direction_name = "ABAJO" if direction == "positive" else "ARRIBA"
-         else:
-             direction_name = "DERECHA" if direction == "positive" else "IZQUIERDA"
-         
-         print(f"   ✅ Dirección: {direction} = {direction_name}")
-         print(f"   📊 Movimiento total: {abs(total_movement)} píxeles")
-         
-         return direction
-       
+        """Determina la dirección usando TODO el trayecto"""
+        if len(self.tracks[track_id]) < 5:
+            return None
+        
+        positions = list(self.tracks[track_id])
+        start_pos = positions[0]
+        end_pos = positions[-1]
+        
+        # Calcular movimiento total
+        total_movement = end_pos - start_pos
+        
+        if abs(total_movement) < self.direction_threshold:
+            return None
+        
+        direction = "positive" if total_movement > 0 else "negative"
+        return direction
+    
     def process_frame(self, frame):
-       """Procesa un frame para detectar y contar personas - SIN SPAM"""
-       rotated_frame = self.rotate_frame(frame)
-       resized_frame = self.resize_frame(rotated_frame)
-       h, w = resized_frame.shape[:2]
-       
-       if self.detection_line is None:
-           self.set_detection_line(w, h)
-       
-       
-       
-       f = io.StringIO()
-       with redirect_stdout(f), redirect_stderr(f):
-           results = self.model.track(resized_frame, persist=True, classes=[0], conf=0.5, verbose=False)
-       
-       # SOLO mostrar info si hay detecciones válidas
-       if results[0].boxes is not None and results[0].boxes.id is not None:
-           boxes = results[0].boxes.xyxy.cpu().numpy()
-           track_ids = results[0].boxes.id.cpu().numpy().astype(int)
-           confidences = results[0].boxes.conf.cpu().numpy()
-           
-           valid_detections = sum(1 for conf in confidences if conf >= 0.5)
-           if valid_detections > 0:
-               print(f"👥 {valid_detections} personas detectadas")
-           
-           for box, track_id, conf in zip(boxes, track_ids, confidences):
-               if conf < 0.5:
-                   continue
-               
-               x1, y1, x2, y2 = box
-               center_x = int((x1 + x2) / 2)
-               center_y = int((y1 + y2) / 2)
-               
-               if self.line_orientation == "vertical":
-                   tracking_coord = center_x
-                   coord_name = "X"
-                   movement_axis = "horizontal"
-               else:
-                   tracking_coord = center_y
-                   coord_name = "Y"
-                   movement_axis = "vertical"
-               
-               print(f"👤 ID {track_id}: {coord_name}={tracking_coord}, conf={conf:.2f}")
-               
-               self.tracks[track_id].append(tracking_coord)
-               
-               if track_id not in self.counted_ids and self.crossed_line(track_id, tracking_coord):
-                   direction = self.get_direction(track_id, tracking_coord)
-                   
-                   if direction:
-                       self.counted_ids.add(track_id)
-                       
-                       if self.counting_mode == "entrance_exit":
-                           if direction == self.entrance_direction:
-                               self.count_entrance += 1
-                               arrow = "⬇️" if movement_axis == "vertical" else "➡️"
-                               print(f"🚪{arrow} Persona #{track_id} ENTRÓ (Total entradas: {self.count_entrance})")
-                           else:
-                               self.count_exit += 1
-                               arrow = "⬆️" if movement_axis == "vertical" else "⬅️"
-                               print(f"🚪{arrow} Persona #{track_id} SALIÓ (Total salidas: {self.count_exit})")
-                       else:
-                           if direction == "positive":
-                               self.count_positive += 1
-                               arrow = "⬇️" if movement_axis == "vertical" else "➡️"
-                               direction_name = "ABAJO" if movement_axis == "vertical" else "DERECHA"
-                               print(f"{arrow} Persona #{track_id} fue hacia {direction_name} (Total: {self.count_positive})")
-                           else:
-                               self.count_negative += 1
-                               arrow = "⬆️" if movement_axis == "vertical" else "⬅️"
-                               direction_name = "ARRIBA" if movement_axis == "vertical" else "IZQUIERDA"
-                               print(f"{arrow} Persona #{track_id} fue hacia {direction_name} (Total: {self.count_negative})")
-       
-       # NO mostrar nada si no hay detecciones - elimina el spam
-       
-       return results[0], resized_frame
+        """
+        Procesa un frame para detectar y contar personas - CON FRAME SKIPPING DINÁMICO
+        """
+        # PRIMERO: Verificar si se debe procesar este frame
+        if not self.should_process_frame():
+            # Frame saltado - devolver frame sin procesar pero con anotaciones básicas
+            rotated_frame = self.rotate_frame(frame)
+            resized_frame = self.resize_frame(rotated_frame)
+            
+            # Actualizar modo (sin detecciones en frame saltado)
+            self.update_frame_skip_mode(has_detections=False)
+            
+            # Crear resultado vacío
+            class EmptyResult:
+                def plot(self):
+                    return resized_frame
+            
+            return EmptyResult(), resized_frame
+        
+        # FRAME A PROCESAR
+        rotated_frame = self.rotate_frame(frame)
+        resized_frame = self.resize_frame(rotated_frame)
+        h, w = resized_frame.shape[:2]
+        
+        if self.detection_line is None:
+            self.set_detection_line(w, h)
+        
+        # Suprimir output de YOLO
+        f = io.StringIO()
+        with redirect_stdout(f), redirect_stderr(f):
+            results = self.model.track(resized_frame, persist=True, classes=[0], conf=0.5, verbose=False)
+        
+        has_detections = False
+        
+        # Procesar detecciones si existen
+        if results[0].boxes is not None and results[0].boxes.id is not None:
+            boxes = results[0].boxes.xyxy.cpu().numpy()
+            track_ids = results[0].boxes.id.cpu().numpy().astype(int)
+            confidences = results[0].boxes.conf.cpu().numpy()
+            
+            valid_detections = sum(1 for conf in confidences if conf >= 0.5)
+            has_detections = valid_detections > 0
+            
+            if has_detections and self.show_frame_skip_info:
+                print(f"👥 {valid_detections} personas detectadas (Frame #{self.frame_counter})")
+            
+            for box, track_id, conf in zip(boxes, track_ids, confidences):
+                if conf < 0.5:
+                    continue
+                
+                x1, y1, x2, y2 = box
+                center_x = int((x1 + x2) / 2)
+                center_y = int((y1 + y2) / 2)
+                
+                if self.line_orientation == "vertical":
+                    tracking_coord = center_x
+                    coord_name = "X"
+                    movement_axis = "horizontal"
+                else:
+                    tracking_coord = center_y
+                    coord_name = "Y"
+                    movement_axis = "vertical"
+                
+                self.tracks[track_id].append(tracking_coord)
+                
+                if track_id not in self.counted_ids and self.crossed_line(track_id, tracking_coord):
+                    direction = self.get_direction(track_id, tracking_coord)
+                    
+                    if direction:
+                        self.counted_ids.add(track_id)
+                        
+                        if self.counting_mode == "entrance_exit":
+                            if direction == self.entrance_direction:
+                                self.count_entrance += 1
+                                arrow = "⬇️" if movement_axis == "vertical" else "➡️"
+                                print(f"🚪{arrow} Persona #{track_id} ENTRÓ (Total entradas: {self.count_entrance})")
+                            else:
+                                self.count_exit += 1
+                                arrow = "⬆️" if movement_axis == "vertical" else "⬅️"
+                                print(f"🚪{arrow} Persona #{track_id} SALIÓ (Total salidas: {self.count_exit})")
+                        else:
+                            if direction == "positive":
+                                self.count_positive += 1
+                                arrow = "⬇️" if movement_axis == "vertical" else "➡️"
+                                direction_name = "ABAJO" if movement_axis == "vertical" else "DERECHA"
+                                print(f"{arrow} Persona #{track_id} fue hacia {direction_name} (Total: {self.count_positive})")
+                            else:
+                                self.count_negative += 1
+                                arrow = "⬆️" if movement_axis == "vertical" else "⬅️"
+                                direction_name = "ARRIBA" if movement_axis == "vertical" else "IZQUIERDA"
+                                print(f"{arrow} Persona #{track_id} fue hacia {direction_name} (Total: {self.count_negative})")
+        
+        # Actualizar modo de frame skipping
+        self.update_frame_skip_mode(has_detections=has_detections)
+        
+        return results[0], resized_frame
     
     def draw_annotations(self, frame, results):
-        """Dibuja las anotaciones en el frame"""
+        """Dibuja las anotaciones en el frame - INCLUYENDO INFO DE FRAME SKIPPING"""
         annotated_frame = results.plot()
         h, w = annotated_frame.shape[:2]
         
@@ -359,7 +432,7 @@ class FlexiblePersonCounter:
                         (self.detection_line + self.line_margin, h), 
                         (0, 255, 255), 2)
                 
-                # Indicadores de dirección
+                # Indicadores de dirección para entrada/salida
                 if self.counting_mode == "entrance_exit":
                     if self.entrance_direction == "positive":
                         entrance_x, exit_x = w - 100, 50
@@ -397,7 +470,7 @@ class FlexiblePersonCounter:
                         (w, self.detection_line + self.line_margin), 
                         (0, 255, 255), 2)
                 
-                # Indicadores de dirección
+                # Indicadores de dirección para entrada/salida
                 if self.counting_mode == "entrance_exit":
                     if self.entrance_direction == "positive":
                         entrance_y, exit_y = h - 100, 50
@@ -465,6 +538,28 @@ class FlexiblePersonCounter:
             draw_text_with_background(annotated_frame, f"TOTAL: {total}", 
                                     (20, 150), font, font_scale, (255, 255, 255), thickness, (0, 0, 0))
         
+        # NUEVA SECCIÓN: Info de Frame Skipping
+        if self.enable_frame_skipping:
+            skip_stats = self.get_frame_skip_stats()
+            if skip_stats:
+                # Color según el modo
+                skip_color = (0, 255, 255) if skip_stats['current_mode'] == "normal" else (255, 0, 255)
+                
+                # Texto del modo actual
+                mode_text = f"SKIP: {skip_stats['current_mode'].upper()}"
+                draw_text_with_background(annotated_frame, mode_text, 
+                                        (20, 190), font, 0.6, skip_color, 2, (0, 0, 0))
+                
+                # Estadísticas de eficiencia
+                efficiency_text = f"Eficiencia: {skip_stats['skip_percentage']:.1f}% saltados"
+                draw_text_with_background(annotated_frame, efficiency_text, 
+                                        (20, 220), font, 0.5, (255, 255, 255), 1, (0, 0, 0))
+                
+                # Frame actual
+                frame_text = f"Frame: {self.frame_counter} (Skip: {skip_stats['current_skip']})"
+                draw_text_with_background(annotated_frame, frame_text, 
+                                        (20, 245), font, 0.5, (200, 200, 200), 1, (0, 0, 0))
+        
         # Info de configuración
         info_parts = [
             f"{w}x{h}",
@@ -475,6 +570,8 @@ class FlexiblePersonCounter:
             info_parts.append(f"Rot: {self.rotation_angle}°")
         if self.line_calibrated:
             info_parts.append("CALIBRADA")
+        if self.enable_frame_skipping:
+            info_parts.append(f"Skip: {self.skip_mode}")
         
         info_text = " | ".join(info_parts)
         draw_text_with_background(annotated_frame, info_text, (20, h - 30), 
@@ -493,10 +590,21 @@ class FlexiblePersonCounter:
         
         self.counted_ids.clear()
         self.tracks.clear()
-        print("🔄 Contadores reiniciados")
+        
+        # Reset frame skipping stats
+        self.frame_counter = 0
+        self.frames_without_detection = 0
+        self.frames_with_detection = 0
+        self.current_frame_skip = self.default_frame_skip
+        self.skip_mode = "normal"
+        self.total_frames_processed = 0
+        self.total_frames_skipped = 0
+        self.mode_changes = 0
+        
+        print("🔄 Contadores y estadísticas de frame skipping reiniciados")
     
     def get_stats(self):
-        """Retorna estadísticas del conteo"""
+        """Retorna estadísticas del conteo incluyendo frame skipping"""
         base_stats = {
             "timestamp": datetime.now().isoformat(),
             "resolution": f"{self.target_width}x{self.target_height}" if self.target_height else "original",
@@ -507,6 +615,22 @@ class FlexiblePersonCounter:
             "line_margin": self.line_margin,
             "counting_mode": self.counting_mode,
         }
+        
+        # Agregar estadísticas de frame skipping
+        if self.enable_frame_skipping:
+            skip_stats = self.get_frame_skip_stats()
+            if skip_stats:
+                base_stats.update({
+                    "frame_skipping_enabled": True,
+                    "frame_skip_mode": skip_stats['current_mode'],
+                    "total_frames": skip_stats['total_frames'],
+                    "frames_processed": skip_stats['frames_processed'],
+                    "frames_skipped": skip_stats['frames_skipped'],
+                    "skip_efficiency_percent": skip_stats['skip_percentage'],
+                    "mode_changes": skip_stats['mode_changes']
+                })
+        else:
+            base_stats["frame_skipping_enabled"] = False
         
         if self.counting_mode == "entrance_exit":
             base_stats.update({
@@ -531,3 +655,30 @@ class FlexiblePersonCounter:
                 })
         
         return base_stats
+    
+    def print_frame_skip_summary(self):
+        """Imprime un resumen de las estadísticas de frame skipping"""
+        if not self.enable_frame_skipping:
+            print("⚡ Frame skipping DESHABILITADO")
+            return
+        
+        skip_stats = self.get_frame_skip_stats()
+        if not skip_stats:
+            return
+        
+        print("\n" + "="*50)
+        print("⚡ RESUMEN DE FRAME SKIPPING")
+        print("="*50)
+        print(f"📊 Total frames: {skip_stats['total_frames']}")
+        print(f"✅ Frames procesados: {skip_stats['frames_processed']}")
+        print(f"⏭️  Frames saltados: {skip_stats['frames_skipped']}")
+        print(f"📈 Eficiencia: {skip_stats['skip_percentage']:.2f}% saltados")
+        print(f"🔄 Cambios de modo: {skip_stats['mode_changes']}")
+        print(f"📍 Modo actual: {skip_stats['current_mode'].upper()}")
+        
+        # Calcular rendimiento mejorado
+        if skip_stats['total_frames'] > 0:
+            fps_improvement = 100 / (100 - skip_stats['skip_percentage'])
+            print(f"🚀 Mejora de rendimiento: {fps_improvement:.1f}x más rápido")
+        
+        print("="*50)
