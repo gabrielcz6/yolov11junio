@@ -24,6 +24,7 @@ class RTSPVideoCapture:
         self.is_capturing = False
         self.ffmpeg_process = None
         self.file_monitor_thread = None
+        self.segment_duration = 15  # Valor por defecto
         
         # Gestión de archivos
         self.completed_files = set()
@@ -54,6 +55,7 @@ class RTSPVideoCapture:
         """Obtiene el número de segmento más alto en el directorio"""
         try:
             mp4_files = list(self.output_dir.glob("*.mp4"))
+            
             if not mp4_files:
                 return -1
             
@@ -110,6 +112,7 @@ class RTSPVideoCapture:
         while self.is_capturing:
             try:
                 current_files = list(self.output_dir.glob("*.mp4"))
+                
                 files_processed_this_iteration = 0
                 
                 if len(current_files) == 0:
@@ -272,7 +275,7 @@ class RTSPVideoCapture:
             self.ffmpeg_restart_count += 1
             
             # Reiniciar
-            await self._start_ffmpeg_process(15, output_pattern)  # Usar duración fija de 15s
+            await self._start_ffmpeg_process(self.segment_duration, output_pattern)
             
             # Reset timer de actividad
             self.last_activity_time = time.time()
@@ -286,6 +289,7 @@ class RTSPVideoCapture:
     def get_queue_status(self):
         """Estado del sistema eterno"""
         mp4_files = list(self.output_dir.glob("*.mp4"))
+        
         highest_segment = self._get_highest_segment_number()
         time_since_activity = time.time() - self.last_activity_time
         
@@ -329,6 +333,7 @@ class RTSPVideoCapture:
         Captura ETERNA - ignora max_videos para ser verdaderamente infinita
         """
         self.is_capturing = True
+        self.segment_duration = duration_seconds
         self.last_activity_time = time.time()
         self.ffmpeg_restart_count = 0
         
@@ -345,7 +350,7 @@ class RTSPVideoCapture:
         
         try:
             # Iniciar FFmpeg
-            await self._start_ffmpeg_process(duration_seconds, output_pattern)
+            await self._start_ffmpeg_process(self.segment_duration, output_pattern)
             
             # Iniciar monitor de archivos
             self.file_monitor_thread = threading.Thread(
