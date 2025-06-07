@@ -293,6 +293,13 @@ class VideoProcessor:
         # Guardar estadísticas
         self.save_stats(video_path.name, stats)
         
+        # Borrar video procesado
+        try:
+            video_path.unlink()  # Elimina el archivo
+            print(f"🗑️ Video eliminado: {video_path.name}")
+        except Exception as e:
+            print(f"⚠️ Error eliminando video {video_path.name}: {e}")
+        
         return stats
     
     def get_summary_stats(self):
