@@ -12,7 +12,7 @@ import re
 class RTSPVideoCapture:
     """
     Clase para capturar videos del stream RTSP de manera continua sin gaps
-    VERSIÓN ETERNA: Captura infinita con reinicio automático de FFmpeg
+    VERSIÓN SIN REINICIO AUTOMÁTICO: FFmpeg corre hasta que termine naturalmente
     """
     
     def __init__(self, rtsp_url, output_dir="videos"):
@@ -25,21 +25,25 @@ class RTSPVideoCapture:
         self.ffmpeg_process = None
         self.file_monitor_thread = None
         self.segment_duration = 15  # Valor por defecto
+        self.secwithoutactivity = 120  # 2 minutos sin actividad
         
         # Gestión de archivos
         self.completed_files = set()
         self.detected_files = {}
         
-        # Configuración para captura eterna
-        self.min_file_age_seconds = 6
-        self.file_stability_time = 3
-        self.ffmpeg_restart_threshold = 30    # Segundos sin actividad antes de reiniciar FFmpeg
+        # Configuración optimizada para segmentos cortos
+        self.min_file_age_seconds = 3       # Reducido para segmentos cortos
+        self.file_stability_time = 1        # Reducido para mayor agilidad
         self.last_activity_time = time.time()
         
         # Control de reinicio automático
-        self.ffmpeg_restart_count = 0
-        self.max_restart_attempts = 5
-        self.restart_delay = 10  # Segundos entre reinicios
+        self.auto_restart_count = 0
+        self.max_auto_restarts_per_hour = 10  # Máximo 10 reinicios por hora
+        self.last_restart_time = 0
+        
+        print("🚀 Sistema con FFmpeg ROBUSTO + Relanzamiento automático")
+        print("📝 FFmpeg se reconectará automáticamente y se relanzará si termina")
+        print("🔄 Máximo 10 reinicios automáticos por hora")
         
     def _get_output_pattern(self):
         """Genera el patrón de salida para segmentación"""
@@ -104,10 +108,10 @@ class RTSPVideoCapture:
     
     def _monitor_new_files(self, duration_seconds):
         """
-        Monitor de archivos para captura ETERNA
+        Monitor de archivos SIMPLIFICADO - sin reinicio de FFmpeg
         Solo procesa archivos que NO sean el más reciente
         """
-        print("📁 Iniciando monitor ETERNO (solo procesa archivos anteriores al último)...")
+        print("📁 Iniciando monitor de archivos (SIN reinicio automático)...")
         
         while self.is_capturing:
             try:
@@ -116,7 +120,6 @@ class RTSPVideoCapture:
                 files_processed_this_iteration = 0
                 
                 if len(current_files) == 0:
-                    print("📁 No hay archivos en directorio, esperando...")
                     time.sleep(5)
                     continue
                 
@@ -130,12 +133,20 @@ class RTSPVideoCapture:
                     
                     segment_number = self._extract_segment_number(file_path.name)
                     
-                    # NO procesar el archivo con el número más alto (más reciente)
+                    # NO procesar el archivo más reciente EXCEPTO si es muy viejo o único
                     if segment_number == highest_segment:
-                        # Solo mostrar mensaje ocasionalmente para el último archivo
-                        if self.video_counter % 20 == 0:  # Cada 20 iteraciones
-                            print(f"⏸️ Archivo más reciente {file_path.name} (seg:{segment_number}) - manteniendo sin procesar")
-                        continue
+                        # EXCEPCIÓN 1: Si es el único archivo y es viejo, procesarlo
+                        if len(current_files) == 1:
+                            file_age = current_time - file_path.stat().st_mtime
+                            if file_age > 45:  # Si tiene más de 45 segundos, procesarlo
+                                print(f"🔓 Procesando archivo único viejo: {file_path.name} (age:{file_age:.1f}s)")
+                            else:
+                                continue
+                        # EXCEPCIÓN 2: Si han pasado más de 3 minutos sin nuevos archivos
+                        elif current_time - self.last_activity_time > 180:
+                            print(f"🔓 Procesando por timeout: {file_path.name}")
+                        else:
+                            continue
                     
                     # Procesar archivos anteriores
                     current_time = time.time()
@@ -143,7 +154,7 @@ class RTSPVideoCapture:
                     if file_path not in self.detected_files:
                         self.detected_files[file_path] = current_time
                         self.last_activity_time = current_time
-                        print(f"🔍 Evaluando archivo anterior: {file_path.name} (seg:{segment_number})")
+                        print(f"🔍 Evaluando archivo: {file_path.name} (seg:{segment_number})")
                         continue
                     
                     # Verificar tiempo desde detección
@@ -183,12 +194,102 @@ class RTSPVideoCapture:
         
         print("📁 Monitor de archivos finalizado")
     
+    async def _monitor_ffmpeg_logs(self, log_file):
+        """Monitorea los logs de FFmpeg para detectar problemas"""
+        try:
+            await asyncio.sleep(5)  # Esperar que se cree el archivo
+            
+            if not log_file.exists():
+                return
+            
+            last_size = 0
+            no_activity_count = 0
+            
+            while self.is_capturing:
+                try:
+                    current_size = log_file.stat().st_size
+                    
+                    if current_size > last_size:
+                        # Hay nueva actividad en logs
+                        no_activity_count = 0
+                        last_size = current_size
+                        
+                        # Leer últimas líneas para detectar errores
+                        with open(log_file, 'r') as f:
+                            f.seek(max(0, current_size - 1000))  # Últimos 1000 chars
+                            recent_logs = f.read()
+                            
+                            # Detectar errores comunes
+                            if "Connection refused" in recent_logs:
+                                print("🚨 FFmpeg: Conexión rechazada por RTSP")
+                            elif "timeout" in recent_logs.lower():
+                                print("🚨 FFmpeg: Timeout de conexión")
+                            elif "error" in recent_logs.lower():
+                                print("🚨 FFmpeg: Error detectado en logs")
+                    else:
+                        no_activity_count += 1
+                        
+                        # Si no hay actividad en logs por mucho tiempo
+                        if no_activity_count > 20:  # 20 * 5s = 100s sin logs
+                            print("⚠️ FFmpeg: Sin actividad en logs por 100+ segundos")
+                            no_activity_count = 0  # Reset
+                    
+                    await asyncio.sleep(5)
+                    
+                except Exception as e:
+                    print(f"⚠️ Error monitoreando logs: {e}")
+                    await asyncio.sleep(10)
+                    
+        except Exception as e:
+            print(f"⚠️ Error en monitor de logs: {e}")
+    
+    def _should_auto_restart(self):
+        """Verifica si se puede hacer un reinicio automático"""
+        current_time = time.time()
+        
+        # Reset contador cada hora
+        if current_time - self.last_restart_time > 3600:  # 1 hora
+            self.auto_restart_count = 0
+        
+        # Verificar límite
+        if self.auto_restart_count >= self.max_auto_restarts_per_hour:
+            print(f"⚠️ Límite de reinicios alcanzado ({self.auto_restart_count}/h)")
+            print("🛑 Pausando reinicios automáticos por 1 hora")
+            return False
+        
+        return True
+    
+    async def _auto_restart_ffmpeg(self, reason="terminación"):
+        """Realiza reinicio automático con control de límites"""
+        if not self._should_auto_restart():
+            return False
+        
+        self.auto_restart_count += 1
+        self.last_restart_time = time.time()
+        
+        print(f"🔄 Auto-reinicio #{self.auto_restart_count} por {reason}")
+        
+        # Generar nuevo patrón de salida
+        output_pattern = self._get_output_pattern()
+        
+        try:
+            await self._start_ffmpeg_process(self.segment_duration, output_pattern)
+            self.last_activity_time = time.time()
+            print(f"✅ FFmpeg auto-reiniciado exitosamente (#{self.auto_restart_count})")
+            return True
+        except Exception as e:
+            print(f"❌ Error en auto-reinicio: {e}")
+            return False
+
     async def _start_ffmpeg_process(self, duration_seconds, output_pattern):
-        """Inicia el proceso FFmpeg"""
+        """Inicia el proceso FFmpeg - SIN sistema de reinicio"""
         cmd = [
             'ffmpeg',
+            # Configuración RTSP básica y compatible
             '-rtsp_transport', 'tcp',
             '-i', self.rtsp_url,
+            
+            # Configuración de segmentación continua
             '-f', 'segment',
             '-segment_time', str(duration_seconds),
             '-segment_format', 'mp4',
@@ -198,96 +299,35 @@ class RTSPVideoCapture:
             '-avoid_negative_ts', 'make_zero',
             '-rtbufsize', '100M',
             '-segment_list_flags', '+live',
-            '-segment_wrap', '1000',          # NUEVO: Envolver después de 1000 segmentos
-            '-segment_start_number', '0',     # NUEVO: Empezar desde 0
+            '-segment_wrap', '0',              # Sin límite de segmentos
+            '-segment_start_number', '0',
+            
+            # Output
             output_pattern
         ]
         
-        print(f"🎬 Iniciando FFmpeg proceso #{self.ffmpeg_restart_count + 1}...")
+        print(f"🎬 Iniciando FFmpeg...")
+        
+        # Crear archivo de log para FFmpeg
+        log_file = self.output_dir / f"ffmpeg_log_{datetime.now().strftime('%Y%m%d_%H%M%S')}.txt"
         
         self.ffmpeg_process = await asyncio.create_subprocess_exec(
             *cmd,
             stdout=asyncio.subprocess.PIPE,
-            stderr=asyncio.subprocess.PIPE
+            stderr=open(log_file, 'w')  # Guardar errores en archivo
         )
         
+        print(f"📝 Log de FFmpeg: {log_file}")
+        
+        # Crear tarea para monitorear logs en tiempo real
+        asyncio.create_task(self._monitor_ffmpeg_logs(log_file))
+        
         print(f"✅ FFmpeg iniciado (PID: {self.ffmpeg_process.pid})")
+        print("📝 FFmpeg correrá sin interrupciones hasta finalización manual")
         return True
     
-    async def _monitor_ffmpeg_health(self):
-        """Monitorea la salud de FFmpeg y lo reinicia si es necesario"""
-        print("🔍 Iniciando monitor de salud de FFmpeg...")
-        
-        while self.is_capturing:
-            try:
-                # Verificar si FFmpeg sigue corriendo
-                if self.ffmpeg_process and self.ffmpeg_process.returncode is not None:
-                    print(f"⚠️ FFmpeg terminó inesperadamente (código: {self.ffmpeg_process.returncode})")
-                    
-                    if self.ffmpeg_restart_count < self.max_restart_attempts:
-                        print(f"🔄 Reiniciando FFmpeg ({self.ffmpeg_restart_count + 1}/{self.max_restart_attempts})...")
-                        await self._restart_ffmpeg()
-                    else:
-                        print(f"❌ Máximo de reintentos alcanzado ({self.max_restart_attempts})")
-                        self.is_capturing = False
-                        break
-                
-                # Verificar actividad reciente
-                time_since_activity = time.time() - self.last_activity_time
-                if time_since_activity > self.ffmpeg_restart_threshold:
-                    print(f"⏰ Sin actividad por {time_since_activity:.1f}s - FFmpeg puede estar colgado")
-                    
-                    # Solo reiniciar si FFmpeg sigue "corriendo" pero sin generar archivos
-                    if (self.ffmpeg_process and 
-                        self.ffmpeg_process.returncode is None and 
-                        self.ffmpeg_restart_count < self.max_restart_attempts):
-                        
-                        print("🔄 Reiniciando FFmpeg por inactividad...")
-                        await self._restart_ffmpeg()
-                
-                await asyncio.sleep(10)  # Verificar cada 10 segundos
-                
-            except Exception as e:
-                print(f"⚠️ Error en monitor de salud: {e}")
-                await asyncio.sleep(5)
-        
-        print("🔍 Monitor de salud finalizado")
-    
-    async def _restart_ffmpeg(self):
-        """Reinicia el proceso FFmpeg"""
-        try:
-            # Terminar proceso actual
-            if self.ffmpeg_process and self.ffmpeg_process.returncode is None:
-                self.ffmpeg_process.terminate()
-                try:
-                    await asyncio.wait_for(self.ffmpeg_process.wait(), timeout=5)
-                except asyncio.TimeoutError:
-                    self.ffmpeg_process.kill()
-                    await self.ffmpeg_process.wait()
-            
-            # Esperar antes de reiniciar
-            await asyncio.sleep(self.restart_delay)
-            
-            # Generar nuevo patrón de salida
-            output_pattern = self._get_output_pattern()
-            
-            # Incrementar contador de reinicio
-            self.ffmpeg_restart_count += 1
-            
-            # Reiniciar
-            await self._start_ffmpeg_process(self.segment_duration, output_pattern)
-            
-            # Reset timer de actividad
-            self.last_activity_time = time.time()
-            
-            print(f"✅ FFmpeg reiniciado exitosamente")
-            
-        except Exception as e:
-            print(f"❌ Error reiniciando FFmpeg: {e}")
-            self.ffmpeg_restart_count += 1
-    
     def get_queue_status(self):
-        """Estado del sistema eterno"""
+        """Estado del sistema simplificado"""
         mp4_files = list(self.output_dir.glob("*.mp4"))
         
         highest_segment = self._get_highest_segment_number()
@@ -300,56 +340,53 @@ class RTSPVideoCapture:
             "files_being_tracked": len(self.detected_files),
             "highest_segment": highest_segment,
             "time_since_activity": round(time_since_activity, 1),
-            "ffmpeg_restart_count": self.ffmpeg_restart_count,
             "ffmpeg_running": self.ffmpeg_process is not None and self.ffmpeg_process.returncode is None,
-            "queue_lag": len(mp4_files) - self.video_queue.qsize() - len(self.completed_files) - 1  # -1 por el archivo actual
+            "queue_lag": len(mp4_files) - self.video_queue.qsize() - len(self.completed_files) - 1
         }
     
     def print_detailed_status(self):
-        """Estado detallado del sistema eterno"""
+        """Estado detallado del sistema"""
         status = self.get_queue_status()
         
-        print(f"\n📊 ESTADO DEL SISTEMA ETERNO:")
+        print(f"\n📊 ESTADO DEL SISTEMA (SIN REINICIO):")
         print(f"   📁 Archivos en directorio: {status['files_in_directory']}")
         print(f"   📋 Archivos en cola: {status['files_in_queue']}")
         print(f"   ✅ Archivos completados: {status['files_completed']}")
         print(f"   🔍 Archivos siendo evaluados: {status['files_being_tracked']}")
         print(f"   📺 Segmento más alto: {status['highest_segment']}")
         print(f"   🕒 Tiempo desde última actividad: {status['time_since_activity']}s")
-        print(f"   🔄 Reinicios de FFmpeg: {status['ffmpeg_restart_count']}")
         print(f"   🎬 FFmpeg corriendo: {'Sí' if status['ffmpeg_running'] else 'No'}")
         print(f"   ⏱️ Retraso de cola: {status['queue_lag']} archivos")
         
         if self.detected_files:
             print(f"   📝 Archivos en evaluación:")
             current_time = time.time()
-            for file_path, detection_time in list(self.detected_files.items())[:5]:  # Solo mostrar primeros 5
+            for file_path, detection_time in list(self.detected_files.items())[:5]:
                 age = current_time - detection_time
                 segment_num = self._extract_segment_number(file_path.name)
                 print(f"      • {file_path.name} (seg:{segment_num}) - {age:.1f}s")
     
     async def continuous_capture_segmented(self, duration_seconds=15, max_videos=None):
         """
-        Captura ETERNA - ignora max_videos para ser verdaderamente infinita
+        Captura continua SIN reinicio automático de FFmpeg
         """
         self.is_capturing = True
         self.segment_duration = duration_seconds
         self.last_activity_time = time.time()
-        self.ffmpeg_restart_count = 0
         
-        print(f"🚀 Iniciando captura ETERNA de videos de {duration_seconds} segundos")
-        print("♾️ MODO ETERNO - Captura infinita con reinicio automático")
-        print("🔄 FFmpeg se reiniciará automáticamente si se detiene")
+        print(f"🚀 Iniciando captura continua de videos de {duration_seconds} segundos")
+        print("📝 MODO SIN REINICIO - FFmpeg correrá hasta finalización manual")
+        print("🔄 NO habrá reinicio automático de FFmpeg")
         
-        # Ignorar max_videos para captura eterna
+        # Ignorar max_videos para captura continua
         if max_videos:
-            print(f"⚠️ max_videos ({max_videos}) IGNORADO en modo eterno")
+            print(f"⚠️ max_videos ({max_videos}) IGNORADO en modo continuo")
         
         output_pattern = self._get_output_pattern()
-        print(f"📁 Patrón inicial: {output_pattern}")
+        print(f"📁 Patrón de salida: {output_pattern}")
         
         try:
-            # Iniciar FFmpeg
+            # Iniciar FFmpeg UNA SOLA VEZ
             await self._start_ffmpeg_process(self.segment_duration, output_pattern)
             
             # Iniciar monitor de archivos
@@ -359,10 +396,7 @@ class RTSPVideoCapture:
                 daemon=True
             )
             self.file_monitor_thread.start()
-            print("📁 Monitor de archivos ETERNO iniciado")
-            
-            # Iniciar monitor de salud de FFmpeg
-            health_task = asyncio.create_task(self._monitor_ffmpeg_health())
+            print("📁 Monitor de archivos iniciado")
             
             videos_detected = 0
             start_time = time.time()
@@ -371,6 +405,47 @@ class RTSPVideoCapture:
             
             while self.is_capturing:
                 current_time = time.time()
+                
+                # Verificar si FFmpeg terminó (solo para información, NO para reiniciar)
+                if self.ffmpeg_process and self.ffmpeg_process.returncode is not None:
+                    print(f"ℹ️ FFmpeg terminó (código: {self.ffmpeg_process.returncode})")
+                    print("📝 Continuando con archivos existentes hasta Ctrl+C")
+                    # NO reiniciamos automáticamente
+                
+                # NUEVA LÓGICA: Relanzamiento automático inteligente
+                if self.ffmpeg_process and self.ffmpeg_process.returncode is not None:
+                    print(f"🔄 FFmpeg terminó (código: {self.ffmpeg_process.returncode})")
+                    
+                    # Esperar un momento
+                    await asyncio.sleep(3)
+                    
+                    # Intentar auto-reinicio
+                    restart_success = await self._auto_restart_ffmpeg("terminación")
+                    if not restart_success:
+                        print("❌ Auto-reinicio falló o límite alcanzado")
+                        print("💡 Usa Ctrl+C + 'python main.py' para reinicio manual")
+                
+                # DETECTAR INACTIVIDAD Y RELANZAR
+                time_since_activity = current_time - self.last_activity_time
+                if (time_since_activity > self.secwithoutactivity and  # 2 minutos sin actividad
+                    self.ffmpeg_process and 
+                    self.ffmpeg_process.returncode is None):
+                    
+                    print(f"🚨 Inactividad: {time_since_activity/60:.1f} min sin archivos")
+                    
+                    # Terminar proceso actual
+                    self.ffmpeg_process.terminate()
+                    try:
+                        await asyncio.wait_for(self.ffmpeg_process.wait(), timeout=5)
+                    except asyncio.TimeoutError:
+                        self.ffmpeg_process.kill()
+                        await self.ffmpeg_process.wait()
+                    
+                    # Auto-reinicio por inactividad
+                    await asyncio.sleep(3)
+                    restart_success = await self._auto_restart_ffmpeg("inactividad")
+                    if not restart_success:
+                        print("❌ Auto-reinicio por inactividad falló")
                 
                 # Estado básico cada 30 segundos
                 if current_time - last_status_time >= 30:
@@ -381,9 +456,11 @@ class RTSPVideoCapture:
                     current_queue_size = self.video_queue.qsize()
                     videos_detected = self.video_counter - 1
                     
-                    print(f"🔄 Estado ETERNO: {elapsed_hours:02.0f}:{elapsed_mins:02.0f} | "
+                    ffmpeg_status = "Activo" if (self.ffmpeg_process and self.ffmpeg_process.returncode is None) else "Terminado"
+                    
+                    print(f"🔄 Estado: {elapsed_hours:02.0f}:{elapsed_mins:02.0f} | "
                           f"Videos: {videos_detected} | Cola: {current_queue_size} | "
-                          f"Reinicios: {self.ffmpeg_restart_count}")
+                          f"FFmpeg: {ffmpeg_status}")
                     
                     last_status_time = current_time
                 
@@ -392,33 +469,26 @@ class RTSPVideoCapture:
                     self.print_detailed_status()
                     last_detailed_status_time = current_time
                 
-                # En modo eterno, NUNCA parar por límite de videos
-                # Solo parar por Ctrl+C o error fatal
-                
                 await asyncio.sleep(5)
-            
-            # Cancelar monitor de salud
-            health_task.cancel()
         
         except KeyboardInterrupt:
-            print("\n🛑 Captura ETERNA detenida por usuario")
+            print("\n🛑 Captura detenida por usuario")
         
         except Exception as e:
-            print(f"❌ Error en captura eterna: {e}")
+            print(f"❌ Error en captura: {e}")
         
         finally:
             await self._cleanup_capture()
             videos_detected = self.video_counter - 1
-            print(f"📈 Total de videos detectados en sesión eterna: {videos_detected}")
+            print(f"📈 Total de videos detectados: {videos_detected}")
             
             final_status = self.get_queue_status()
             print(f"📊 Estado final: {final_status['files_in_directory']} archivos, "
-                  f"{final_status['files_in_queue']} en cola, "
-                  f"{final_status['ffmpeg_restart_count']} reinicios")
+                  f"{final_status['files_in_queue']} en cola")
     
     async def _cleanup_capture(self):
-        """Limpieza del sistema eterno"""
-        print("🧹 Limpiando sistema eterno...")
+        """Limpieza del sistema"""
+        print("🧹 Limpiando sistema...")
         
         self.is_capturing = False
         
@@ -456,19 +526,19 @@ class RTSPVideoCapture:
         return None
     
     async def continuous_capture(self, duration_seconds=600, max_videos=None):
-        """Método legacy - redirige a captura eterna"""
-        print("🔄 Redirigiendo a captura ETERNA...")
+        """Método legacy - redirige a captura continua"""
+        print("🔄 Redirigiendo a captura continua SIN reinicio...")
         await self.continuous_capture_segmented(duration_seconds, max_videos)
     
     def get_capture_stats(self):
-        """Estadísticas del sistema eterno"""
+        """Estadísticas del sistema"""
         base_stats = {
             "is_capturing": self.is_capturing,
             "videos_in_queue": self.video_queue.qsize(),
             "video_counter": self.video_counter,
             "ffmpeg_running": self.ffmpeg_process is not None and self.ffmpeg_process.returncode is None,
             "monitor_active": self.file_monitor_thread is not None and self.file_monitor_thread.is_alive(),
-            "mode": "ETERNAL"
+            "mode": "CONTINUOUS_NO_RESTART"
         }
         
         queue_status = self.get_queue_status()
@@ -477,16 +547,15 @@ class RTSPVideoCapture:
         return base_stats
     
     def print_status(self):
-        """Estado actual del sistema eterno"""
+        """Estado actual del sistema"""
         stats = self.get_capture_stats()
-        print(f"\n📊 ESTADO DEL SISTEMA ETERNO:")
+        print(f"\n📊 ESTADO DEL SISTEMA (SIN REINICIO):")
         print(f"   🎥 Capturando: {'Sí' if stats['is_capturing'] else 'No'}")
         print(f"   🎬 FFmpeg activo: {'Sí' if stats['ffmpeg_running'] else 'No'}")
         print(f"   📁 Monitor activo: {'Sí' if stats['monitor_active'] else 'No'}")
         print(f"   📊 Videos en cola: {stats['videos_in_queue']}")
         print(f"   📁 Archivos en directorio: {stats['files_in_directory']}")
         print(f"   ✅ Archivos completados: {stats['files_completed']}")
-        print(f"   🔄 Reinicios FFmpeg: {stats['ffmpeg_restart_count']}")
         print(f"   🕒 Última actividad: {stats['time_since_activity']}s")
-        print(f"   ♾️ Modo: ETERNO")
+        print(f"   📝 Modo: CONTINUO SIN REINICIO")
         print(f"   🔢 Contador: {stats['video_counter']}")
