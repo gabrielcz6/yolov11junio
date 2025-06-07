@@ -5,8 +5,8 @@
 RTSP_URL = "rtsp://admin:usuario1234@192.168.18.13:554/Streaming/channels/101?tcp"
 
 # Parámetros de captura
-VIDEO_DURATION_SECONDS = 15
-MAX_VIDEOS = 5000000
+VIDEO_DURATION_SECONDS = 300 # Duración del video a capturar
+MAX_VIDEOS = 9999999
 PROCESS_VIDEOS = True
 SHOW_LIVE = True
 
