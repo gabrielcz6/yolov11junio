@@ -12,7 +12,7 @@ import re
 class RTSPVideoCapture:
     """
     Clase para capturar videos del stream RTSP de manera continua sin gaps
-    VERSIÓN SIN REINICIO AUTOMÁTICO: FFmpeg corre hasta que termine naturalmente
+    VERSIÓN CORREGIDA: USA CONFIGURACIÓN DE config.py PARA TIMEOUTS
     """
     
     def __init__(self, rtsp_url, output_dir="videos"):
@@ -25,7 +25,23 @@ class RTSPVideoCapture:
         self.ffmpeg_process = None
         self.file_monitor_thread = None
         self.segment_duration = 15  # Valor por defecto
-        self.secwithoutactivity = 120  # 2 minutos sin actividad
+        
+        # CARGAR CONFIGURACIÓN DESDE config.py
+        try:
+            import config
+            self.inactivity_timeout = getattr(config, 'INACTIVITY_TIMEOUT_SECONDS', 180)
+            self.restart_delay = getattr(config, 'FFMPEG_RESTART_DELAY_SECONDS', 5)
+            self.max_auto_restarts_per_hour = getattr(config, 'MAX_AUTO_RESTARTS_PER_HOUR', 10)
+            print(f"📋 Configuración cargada desde config.py:")
+            print(f"   ⏰ Timeout de inactividad: {self.inactivity_timeout}s")
+            print(f"   🔄 Delay de reinicio: {self.restart_delay}s")
+            print(f"   🚫 Max reinicios/hora: {self.max_auto_restarts_per_hour}")
+        except ImportError:
+            # Valores por defecto si no se puede cargar config.py
+            self.inactivity_timeout = 180  # 3 minutos
+            self.restart_delay = 5
+            self.max_auto_restarts_per_hour = 10
+            print("⚠️ No se pudo cargar config.py, usando valores por defecto")
         
         # Gestión de archivos
         self.completed_files = set()
@@ -38,13 +54,12 @@ class RTSPVideoCapture:
         
         # Control de reinicio automático
         self.auto_restart_count = 0
-        self.max_auto_restarts_per_hour = 10  # Máximo 10 reinicios por hora
         self.last_restart_time = 0
         
-        print("🚀 Sistema con FFmpeg ROBUSTO + Relanzamiento automático")
-        print("📝 FFmpeg se reconectará automáticamente y se relanzará si termina")
-        print("🔄 Máximo 10 reinicios automáticos por hora")
-        
+        print("🚀 Sistema con FFmpeg ROBUSTO + Relanzamiento automático CONFIGURABLE")
+        print("📝 FFmpeg se reconectará automáticamente según configuración")
+        print(f"🔄 Máximo {self.max_auto_restarts_per_hour} reinicios automáticos por hora")
+    
     def _get_output_pattern(self):
         """Genera el patrón de salida para segmentación"""
         timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
@@ -108,13 +123,15 @@ class RTSPVideoCapture:
     
     def _monitor_new_files(self, duration_seconds):
         """
-        Monitor de archivos SIMPLIFICADO - sin reinicio de FFmpeg
-        Solo procesa archivos que NO sean el más reciente
+        Monitor de archivos CORREGIDO - sin variable undefined
         """
-        print("📁 Iniciando monitor de archivos (SIN reinicio automático)...")
+        print("📁 Iniciando monitor de archivos con timeouts configurables...")
+        print(f"⏰ Timeout de inactividad configurado: {self.inactivity_timeout}s")
         
         while self.is_capturing:
             try:
+                # CORRECCIÓN: Definir current_time al inicio del loop
+                current_time = time.time()
                 current_files = list(self.output_dir.glob("*.mp4"))
                 
                 files_processed_this_iteration = 0
@@ -142,15 +159,13 @@ class RTSPVideoCapture:
                                 print(f"🔓 Procesando archivo único viejo: {file_path.name} (age:{file_age:.1f}s)")
                             else:
                                 continue
-                        # EXCEPCIÓN 2: Si han pasado más de 3 minutos sin nuevos archivos
-                        elif current_time - self.last_activity_time > 180:
-                            print(f"🔓 Procesando por timeout: {file_path.name}")
+                        # EXCEPCIÓN 2: Si han pasado más de tiempo configurado sin nuevos archivos
+                        elif current_time - self.last_activity_time > self.inactivity_timeout:
+                            print(f"🔓 Procesando por timeout ({self.inactivity_timeout}s): {file_path.name}")
                         else:
                             continue
                     
                     # Procesar archivos anteriores
-                    current_time = time.time()
-                    
                     if file_path not in self.detected_files:
                         self.detected_files[file_path] = current_time
                         self.last_activity_time = current_time
@@ -254,7 +269,7 @@ class RTSPVideoCapture:
         # Verificar límite
         if self.auto_restart_count >= self.max_auto_restarts_per_hour:
             print(f"⚠️ Límite de reinicios alcanzado ({self.auto_restart_count}/h)")
-            print("🛑 Pausando reinicios automáticos por 1 hora")
+            print(f"🛑 Pausando reinicios automáticos por 1 hora")
             return False
         
         return True
@@ -268,6 +283,10 @@ class RTSPVideoCapture:
         self.last_restart_time = time.time()
         
         print(f"🔄 Auto-reinicio #{self.auto_restart_count} por {reason}")
+        print(f"⏰ Esperando {self.restart_delay}s antes de reiniciar...")
+        
+        # Delay configurable antes de reiniciar
+        await asyncio.sleep(self.restart_delay)
         
         # Generar nuevo patrón de salida
         output_pattern = self._get_output_pattern()
@@ -282,7 +301,7 @@ class RTSPVideoCapture:
             return False
 
     async def _start_ffmpeg_process(self, duration_seconds, output_pattern):
-        """Inicia el proceso FFmpeg - SIN sistema de reinicio"""
+        """Inicia el proceso FFmpeg con configuración robusta"""
         cmd = [
             'ffmpeg',
             # Configuración RTSP básica y compatible
@@ -306,7 +325,7 @@ class RTSPVideoCapture:
             output_pattern
         ]
         
-        print(f"🎬 Iniciando FFmpeg...")
+        print(f"🎬 Iniciando FFmpeg con timeout de inactividad: {self.inactivity_timeout}s...")
         
         # Crear archivo de log para FFmpeg
         log_file = self.output_dir / f"ffmpeg_log_{datetime.now().strftime('%Y%m%d_%H%M%S')}.txt"
@@ -323,7 +342,6 @@ class RTSPVideoCapture:
         asyncio.create_task(self._monitor_ffmpeg_logs(log_file))
         
         print(f"✅ FFmpeg iniciado (PID: {self.ffmpeg_process.pid})")
-        print("📝 FFmpeg correrá sin interrupciones hasta finalización manual")
         return True
     
     def get_queue_status(self):
@@ -341,21 +359,25 @@ class RTSPVideoCapture:
             "highest_segment": highest_segment,
             "time_since_activity": round(time_since_activity, 1),
             "ffmpeg_running": self.ffmpeg_process is not None and self.ffmpeg_process.returncode is None,
-            "queue_lag": len(mp4_files) - self.video_queue.qsize() - len(self.completed_files) - 1
+            "queue_lag": len(mp4_files) - self.video_queue.qsize() - len(self.completed_files) - 1,
+            "inactivity_timeout": self.inactivity_timeout,
+            "auto_restart_count": self.auto_restart_count
         }
     
     def print_detailed_status(self):
         """Estado detallado del sistema"""
         status = self.get_queue_status()
         
-        print(f"\n📊 ESTADO DEL SISTEMA (SIN REINICIO):")
+        print(f"\n📊 ESTADO DEL SISTEMA (CONFIGURABLE):")
         print(f"   📁 Archivos en directorio: {status['files_in_directory']}")
         print(f"   📋 Archivos en cola: {status['files_in_queue']}")
         print(f"   ✅ Archivos completados: {status['files_completed']}")
         print(f"   🔍 Archivos siendo evaluados: {status['files_being_tracked']}")
         print(f"   📺 Segmento más alto: {status['highest_segment']}")
         print(f"   🕒 Tiempo desde última actividad: {status['time_since_activity']}s")
+        print(f"   ⏰ Timeout configurado: {status['inactivity_timeout']}s")
         print(f"   🎬 FFmpeg corriendo: {'Sí' if status['ffmpeg_running'] else 'No'}")
+        print(f"   🔄 Auto-reinicios: {status['auto_restart_count']}")
         print(f"   ⏱️ Retraso de cola: {status['queue_lag']} archivos")
         
         if self.detected_files:
@@ -368,15 +390,15 @@ class RTSPVideoCapture:
     
     async def continuous_capture_segmented(self, duration_seconds=15, max_videos=None):
         """
-        Captura continua SIN reinicio automático de FFmpeg
+        Captura continua CON reinicio automático configurable
         """
         self.is_capturing = True
         self.segment_duration = duration_seconds
         self.last_activity_time = time.time()
         
         print(f"🚀 Iniciando captura continua de videos de {duration_seconds} segundos")
-        print("📝 MODO SIN REINICIO - FFmpeg correrá hasta finalización manual")
-        print("🔄 NO habrá reinicio automático de FFmpeg")
+        print(f"📝 MODO CONFIGURABLE - Timeout: {self.inactivity_timeout}s")
+        print(f"🔄 Auto-reinicio tras {self.inactivity_timeout}s sin actividad")
         
         # Ignorar max_videos para captura continua
         if max_videos:
@@ -386,7 +408,7 @@ class RTSPVideoCapture:
         print(f"📁 Patrón de salida: {output_pattern}")
         
         try:
-            # Iniciar FFmpeg UNA SOLA VEZ
+            # Iniciar FFmpeg
             await self._start_ffmpeg_process(self.segment_duration, output_pattern)
             
             # Iniciar monitor de archivos
@@ -406,18 +428,9 @@ class RTSPVideoCapture:
             while self.is_capturing:
                 current_time = time.time()
                 
-                # Verificar si FFmpeg terminó (solo para información, NO para reiniciar)
-                if self.ffmpeg_process and self.ffmpeg_process.returncode is not None:
-                    print(f"ℹ️ FFmpeg terminó (código: {self.ffmpeg_process.returncode})")
-                    print("📝 Continuando con archivos existentes hasta Ctrl+C")
-                    # NO reiniciamos automáticamente
-                
-                # NUEVA LÓGICA: Relanzamiento automático inteligente
+                # RELANZAMIENTO AUTOMÁTICO por terminación
                 if self.ffmpeg_process and self.ffmpeg_process.returncode is not None:
                     print(f"🔄 FFmpeg terminó (código: {self.ffmpeg_process.returncode})")
-                    
-                    # Esperar un momento
-                    await asyncio.sleep(3)
                     
                     # Intentar auto-reinicio
                     restart_success = await self._auto_restart_ffmpeg("terminación")
@@ -425,13 +438,13 @@ class RTSPVideoCapture:
                         print("❌ Auto-reinicio falló o límite alcanzado")
                         print("💡 Usa Ctrl+C + 'python main.py' para reinicio manual")
                 
-                # DETECTAR INACTIVIDAD Y RELANZAR
+                # DETECTAR INACTIVIDAD Y RELANZAR CON TIEMPO CONFIGURABLE
                 time_since_activity = current_time - self.last_activity_time
-                if (time_since_activity > self.secwithoutactivity and  # 2 minutos sin actividad
+                if (time_since_activity > self.inactivity_timeout and  # Tiempo configurable
                     self.ffmpeg_process and 
                     self.ffmpeg_process.returncode is None):
                     
-                    print(f"🚨 Inactividad: {time_since_activity/60:.1f} min sin archivos")
+                    print(f"🚨 Inactividad: {time_since_activity/60:.1f} min sin archivos (límite: {self.inactivity_timeout/60:.1f} min)")
                     
                     # Terminar proceso actual
                     self.ffmpeg_process.terminate()
@@ -442,7 +455,6 @@ class RTSPVideoCapture:
                         await self.ffmpeg_process.wait()
                     
                     # Auto-reinicio por inactividad
-                    await asyncio.sleep(3)
                     restart_success = await self._auto_restart_ffmpeg("inactividad")
                     if not restart_success:
                         print("❌ Auto-reinicio por inactividad falló")
@@ -460,7 +472,7 @@ class RTSPVideoCapture:
                     
                     print(f"🔄 Estado: {elapsed_hours:02.0f}:{elapsed_mins:02.0f} | "
                           f"Videos: {videos_detected} | Cola: {current_queue_size} | "
-                          f"FFmpeg: {ffmpeg_status}")
+                          f"FFmpeg: {ffmpeg_status} | Inact: {time_since_activity:.0f}s/{self.inactivity_timeout}s")
                     
                     last_status_time = current_time
                 
@@ -527,7 +539,7 @@ class RTSPVideoCapture:
     
     async def continuous_capture(self, duration_seconds=600, max_videos=None):
         """Método legacy - redirige a captura continua"""
-        print("🔄 Redirigiendo a captura continua SIN reinicio...")
+        print("🔄 Redirigiendo a captura continua CONFIGURABLE...")
         await self.continuous_capture_segmented(duration_seconds, max_videos)
     
     def get_capture_stats(self):
@@ -538,7 +550,10 @@ class RTSPVideoCapture:
             "video_counter": self.video_counter,
             "ffmpeg_running": self.ffmpeg_process is not None and self.ffmpeg_process.returncode is None,
             "monitor_active": self.file_monitor_thread is not None and self.file_monitor_thread.is_alive(),
-            "mode": "CONTINUOUS_NO_RESTART"
+            "mode": "CONTINUOUS_CONFIGURABLE",
+            "inactivity_timeout": self.inactivity_timeout,
+            "restart_delay": self.restart_delay,
+            "auto_restart_count": self.auto_restart_count
         }
         
         queue_status = self.get_queue_status()
@@ -549,7 +564,7 @@ class RTSPVideoCapture:
     def print_status(self):
         """Estado actual del sistema"""
         stats = self.get_capture_stats()
-        print(f"\n📊 ESTADO DEL SISTEMA (SIN REINICIO):")
+        print(f"\n📊 ESTADO DEL SISTEMA (CONFIGURABLE):")
         print(f"   🎥 Capturando: {'Sí' if stats['is_capturing'] else 'No'}")
         print(f"   🎬 FFmpeg activo: {'Sí' if stats['ffmpeg_running'] else 'No'}")
         print(f"   📁 Monitor activo: {'Sí' if stats['monitor_active'] else 'No'}")
@@ -557,5 +572,8 @@ class RTSPVideoCapture:
         print(f"   📁 Archivos en directorio: {stats['files_in_directory']}")
         print(f"   ✅ Archivos completados: {stats['files_completed']}")
         print(f"   🕒 Última actividad: {stats['time_since_activity']}s")
-        print(f"   📝 Modo: CONTINUO SIN REINICIO")
+        print(f"   ⏰ Timeout configurado: {stats['inactivity_timeout']}s")
+        print(f"   🔄 Delay de reinicio: {stats['restart_delay']}s")
+        print(f"   🔢 Auto-reinicios: {stats['auto_restart_count']}")
+        print(f"   📝 Modo: CONTINUO CONFIGURABLE")
         print(f"   🔢 Contador: {stats['video_counter']}")
